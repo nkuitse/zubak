@@ -1,0 +1,224 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use IPC::Run qw(run);
+use POSIX qw(strftime);
+use Getopt::Long
+    qw(:config posix_default gnu_compat require_order bundling no_ignore_case);
+
+sub blather;
+sub note;
+sub usage;
+sub fatal;
+
+sub xchdir;
+sub xsymlink;
+sub xunlink;
+sub xmkdir;
+sub xopen;
+
+my $root = '/var/local/backup';
+my $now;
+my ($verbose, $quiet);
+
+xchdir $root;
+
+usage if !@ARGV;
+&{ __PACKAGE__->can('cmd_'.shift(@ARGV)) || usage };
+
+sub cmd_ns {
+    usage if @ARGV != 1;
+    my ($t) = @ARGV;
+    xchdir "targets/$t";
+    my $target = read_target_conf($t);
+    my @series = read_series_log($t);
+    my @open = grep { ! $_->{'closed'} } @series;
+    fatal "multiple open series: $t" if @open > 1;
+    close_series($t, $open[0]{'series'}) if @open;
+    my $s = max(map { $_->{'series'} } @series) + 1;
+    open_series($t, $s);
+    print $s, "\n";
+}
+
+sub open_series {
+    my ($t, $s) = @_;
+    xunlink "$root/targets/$t/series/current" if -e "$root/targets/$t/series/current";
+    xsymlink "$root/targets/$t/series/current", $s;
+    xmkdir "$root/targets/$t/series/$s", "$root/targets/$t/series/$s/\@empty";
+    my $now = time;
+    print { xopen('>', "$root/targets/$t/series/series.log") } "$now series $s open\n";
+}
+
+sub max {
+    my $n = 0;
+    foreach (@_) {
+        $n = $_ if $_ > $n;
+    }
+    return $n;
+}
+
+sub cmd_up {
+    usage if @ARGV != 1;
+    my ($t) = @ARGV;
+    xchdir "targets/$t";
+    my $target = read_target_conf($t);
+    my @series = read_series_log($t);
+    my @open = grep { ! $_->{'closed'} } @series;
+    fatal "no open series: $t" if !@open;
+    fatal "multiple open series: $t" if @open > 1;
+    my $series = shift @open;
+    my $backup = next_backup($target, $series);
+    perform_backup($target, $series, $backup);
+    printf STDERR "Backup %s complete: %d files (%sB) in %s\n",
+        $backup->{'backup'},
+        $backup->{'files'},
+        num2hum($backup->{'size'}),
+        sec2dur($backup->{'elapsed'});
+}
+
+sub num2hum {
+    my ($n) = @_;
+    return sprintf('%.1fG', $n/2**30) if $n >= 2**30;
+    return sprintf('%.1fM', $n/2**20) if $n >= 2**20;
+    return sprintf('%.1fK', $n/2**10) if $n >= 2**10;
+    return $n;
+}
+
+sub sec2dur {
+    my ($s) = @_;
+    my @dur;
+    push(@dur, int($s/604800).'w'), $s %= 604800 if $s > 604800;
+    push(@dur, int($s/ 86400).'d'), $s %=  86400 if $s >  86400;
+    push(@dur, int($s/  3600).'h'), $s %=   3600 if $s >   3600;
+    push(@dur, int($s/    60).'m'), $s %=     60 if $s >     60;
+    return join(' ', @dur, $s.'s');
+}
+
+sub read_target_conf {
+    my ($t) = @_;
+    kvread("$root/targets/$t/target.conf");
+}
+
+sub read_series_log {
+    my ($t) = @_;
+    my $fh = xopen('<', "$root/targets/$t/series/series.log");
+    my (@s, %s);
+    while (<$fh>) {
+        if (/^(\d+) series (\S+) open/) {
+            push @s, $s{$2} = { 'series' => $2, 'opened' => $1 };
+        }
+        elsif (/^(\d+) series (\S+) close/) {
+            $s{$2}{'closed'} = $1;
+        }
+        elsif (/^(\d+) series (\S+) backup (\S+) (ok|fail)/) {
+            push @{ $s{$2}{'backups'} ||= [] }, {
+                'backup' => $3,
+                'result' => $4,
+            };
+        }
+    }
+    return @s;
+}
+
+sub perform_backup {
+    my ($target, $series, $backup) = @_;
+    $now = time;
+    my $b = $backup->{'backup'} = timestamp($target->{'timestamp-format'}, $now);
+    my @backup = ('bin/backup');
+    if (rename 'series/current/@empty', 'series/current/@running') {
+        # Full backup
+    }
+    elsif (rename 'series/current/@idle', 'series/current/@running') {
+        # Incremental
+        push @backup, last_backup('current');
+    }
+    else {
+        fatal "current backup series not in coherent state";
+    }
+    my $fhlog = xopen('>>', 'series/series.log');
+    my $chunksize = $target->{'chunk-size'} || '100M';
+    my @split  = ('split', '-b' => $chunksize, '-a' => 3, '-d', '-', "series/current/$b.");
+    if (run(\@backup, '2>', "series/current/$b.eum", '|', \@split)) {
+        print $fhlog "$now backup $b ok\n";
+    }
+    else {
+        print $fhlog "$now backup $b fail $?\n";
+        fatal "Backup failed";
+    }
+    xchdir('series/current');
+    xsystem(qw(zpaq a archive), glob("$b.*"));
+    my $fh = xopen('<', "$b.eum");
+    my $count = 0;
+    while (<$fh>) {
+        $count = 0, next if /^[+]/;
+        $backup->{$1} = $2, next if /^\$(\S+)\s+(.*)/;
+    }
+    $backup->{'files'} = $count;
+}
+
+sub next_series {
+}
+
+sub next_backup {
+    my ($target, $series) = @_;
+    return {};
+}
+
+sub last_backup {
+    my ($s) = @_;
+}
+
+sub timestamp {
+    my ($fmt, $t) = @_;
+    $fmt //= '%Y%m%dT%H%M%SZ';
+    $t //= time;
+    return strftime($fmt, gmtime $t);
+}
+
+sub xchdir {
+    my ($path) = @_;
+    blather "chdir $path";
+    chdir $path or fatal "Can't chdir $path: $!";
+}
+
+sub blather {
+    return if !$verbose;
+    print STDERR @_, "\n";
+}
+
+sub note {
+    print STDERR "\e[32;1m", @_, "\e[0m\n" if !$quiet;
+}
+
+sub kvread {
+    my ($f) = @_;
+    my %conf;
+    my $fh = xopen($f);
+    while (<$fh>) {
+        chomp;
+        next if /^\s*(?:#.*)?$/;  # Skip blank lines and comments
+        $conf{$1} = $2, next if /^(\S+)\s+(.*)$/;
+        fatal "Invalid line in $f: $_";
+    }
+    close $fh;
+    return \%conf;
+}
+
+sub xopen {
+    blather("open @_");
+    my $f = pop;
+    my $m = @_ ? shift : '<';
+    open my $fh, $m, $f or fatal "Can't open $f: $!";
+    return $fh;
+}
+
+sub xsystem {
+    blather("system @_");
+    my $ok = run @_;
+    return if $ok;
+    my $prog = shift;
+    fatal "$prog: fatal [ @_ ] $!";
+}
+
