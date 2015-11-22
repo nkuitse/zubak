@@ -37,7 +37,7 @@ sub cmd_ns {
     my @series = read_series_log($t);
     my @open = grep { ! $_->{'closed'} } @series;
     fatal "multiple open series: $t" if @open > 1;
-    close_series($t, $open[0]{'series'}) if @open;
+    close_series($target, $open[0]) if @open;
     my $s = max(map { $_->{'series'} } @series) + 1;
     open_series($t, $s);
     print $s, "\n";
@@ -46,9 +46,18 @@ sub cmd_ns {
 sub open_series {
     my ($t, $s) = @_;
     xunlink "$root/targets/$t/series/current" if -e "$root/targets/$t/series/current";
-    xsymlink "$root/targets/$t/series/current", $s;
+    xsymlink $s, "$root/targets/$t/series/current";
     xmkdir "$root/targets/$t/series/$s", "$root/targets/$t/series/$s/\@empty";
-    printf { xopen('>', "$root/targets/$t/series/series.log") } "%d series %s open\n", now, $s;
+    printf { xopen('>>', "$root/targets/$t/series/series.log") } "%d series %s open\n", now, $s;
+}
+
+sub close_series {
+    my ($target, $series) = @_;
+    my $s = $series->{'series'};
+    my $status = glob("series/$s/\@*");
+    fatal "series has no status: $s" if !defined $status;
+    fatal "series has error status: $s" if $status =~ m{.+/\@error$};
+    rename $status, "series/$s/\@closed" or fatal "can't close series $s: $!";
 }
 
 sub max {
@@ -127,28 +136,31 @@ sub read_series_log {
 sub perform_backup {
     my ($target, $series, $backup) = @_;
     my $b = $backup->{'backup'};
+    my $s = $series->{'series'};
     my @backup = ('bin/backup');
-    if (rename 'series/current/@empty', 'series/current/@running') {
+    if (rename "series/$s/\@empty", "series/$s/\@running") {
         # Full backup
     }
-    elsif (rename 'series/current/@idle', 'series/current/@running') {
+    elsif (rename "series/$s/\@idle", "series/$s/\@running") {
         # Incremental
-        push @backup, last_backup('current');
+        my $l = last_backup($series) or fatal "no previous backup: $s";
+        push @backup, "series/$s/$l";
     }
     else {
-        fatal "current backup series not in coherent state";
+        fatal "backup series not in coherent state: $s";
     }
     my $fhlog = xopen('>>', 'series/series.log');
     my $chunksize = $target->{'chunk-size'} || '100M';
-    my @split  = ('split', '-b' => $chunksize, '-a' => 3, '-d', '-', "series/current/$b.");
-    if (run(\@backup, '2>', "series/current/$b.eum", '|', \@split)) {
-        printf $fhlog "%d backup %s ok\n", now, $b;
+    my @split  = ('split', '-b' => $chunksize, '-a' => 3, '-d', '-', "series/$s/$b.");
+    if (run(\@backup, '2>', "series/$s/$b.eum", '|', \@split)) {
+        printf $fhlog "%d series %d backup %s ok\n", now, $s, $b;
     }
     else {
-        printf $fhlog "%d backup %s fail %d\n", now, $b, $?;
+        printf $fhlog "%d series %d backup %s fail %d\n", now, $s, $b, $?;
+        rename '@running', '@error';
         fatal "Backup failed";
     }
-    xchdir('series/current');
+    xchdir('series/$s');
     # Record backup details
     my $fh = xopen('<', "$b.eum");
     my $count = 0;
@@ -166,9 +178,6 @@ sub perform_backup {
         or fatal "Can't finish backup: $!";
 }
 
-sub next_series {
-}
-
 sub next_backup {
     my ($target, $series) = @_;
     return {
@@ -177,7 +186,10 @@ sub next_backup {
 }
 
 sub last_backup {
-    my ($s) = @_;
+    my ($series) = @_;
+    my @backups = grep { $_->{'result'} eq 'ok' } @{ $series->{'backups'} };
+    return if !@backups;
+    return $backups[-1]{'backup'};
 }
 
 sub timestamp {
@@ -243,6 +255,25 @@ sub xsystem {
     return if $ok;
     my $prog = shift;
     fatal "$prog: fatal [ @_ ] $!";
+}
+
+sub xunlink {
+    blather("unlink @_");
+    unlink($_) or fatal "Can't unlink $_: $!" for @_;
+}
+
+sub xsymlink {
+    my ($o, $n) = @_;
+    blather("symlink $n -> $o");
+    symlink $o, $n or fatal "Can't create symlink $n -> $o: $!";
+}
+
+sub xmkdir {
+    foreach (@_) {
+        next if -d;
+        blather("mkdir $_");
+        mkdir $_ or fatal "Can't mkdir $_: $!";
+    }
 }
 
 sub now {
