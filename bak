@@ -18,6 +18,7 @@ sub xsymlink;
 sub xunlink;
 sub xmkdir;
 sub xopen;
+sub now;
 
 my $root = '/var/local/backup';
 my $now;
@@ -47,8 +48,7 @@ sub open_series {
     xunlink "$root/targets/$t/series/current" if -e "$root/targets/$t/series/current";
     xsymlink "$root/targets/$t/series/current", $s;
     xmkdir "$root/targets/$t/series/$s", "$root/targets/$t/series/$s/\@empty";
-    my $now = time;
-    print { xopen('>', "$root/targets/$t/series/series.log") } "$now series $s open\n";
+    printf { xopen('>', "$root/targets/$t/series/series.log") } "%d series %s open\n", now, $s;
 }
 
 sub max {
@@ -71,11 +71,13 @@ sub cmd_up {
     my $series = shift @open;
     my $backup = next_backup($target, $series);
     perform_backup($target, $series, $backup);
-    printf STDERR "Backup %s complete: %d files (%sB) in %s\n",
+    printf STDERR
+        "Backup %s complete: %d files (%sB) in %s\n",
         $backup->{'backup'},
         $backup->{'files'},
         num2hum($backup->{'size'}),
-        sec2dur($backup->{'elapsed'});
+        sec2dur($backup->{'elapsed'}),
+    ;
 }
 
 sub num2hum {
@@ -124,8 +126,7 @@ sub read_series_log {
 
 sub perform_backup {
     my ($target, $series, $backup) = @_;
-    $now = time;
-    my $b = $backup->{'backup'} = timestamp($target->{'timestamp-format'}, $now);
+    my $b = $backup->{'backup'};
     my @backup = ('bin/backup');
     if (rename 'series/current/@empty', 'series/current/@running') {
         # Full backup
@@ -141,21 +142,28 @@ sub perform_backup {
     my $chunksize = $target->{'chunk-size'} || '100M';
     my @split  = ('split', '-b' => $chunksize, '-a' => 3, '-d', '-', "series/current/$b.");
     if (run(\@backup, '2>', "series/current/$b.eum", '|', \@split)) {
-        print $fhlog "$now backup $b ok\n";
+        printf $fhlog "%d backup %s ok\n", now, $b;
     }
     else {
-        print $fhlog "$now backup $b fail $?\n";
+        printf $fhlog "%d backup %s fail %d\n", now, $b, $?;
         fatal "Backup failed";
     }
     xchdir('series/current');
-    xsystem(qw(zpaq a archive), glob("$b.*"));
+    # Record backup details
     my $fh = xopen('<', "$b.eum");
     my $count = 0;
     while (<$fh>) {
-        $count = 0, next if /^[+]/;
+        $count++, next if /^[+]/;
         $backup->{$1} = $2, next if /^\$(\S+)\s+(.*)/;
     }
     $backup->{'files'} = $count;
+    $backup->{'elapsed'} = $backup->{'end'} - $backup->{'begin'};
+    kvwrite("$b.backup", $backup);
+    # Add to series archive
+    xsystem(qw(zpaq a archive), glob("$b.*"));
+    # TODO Trigger offsite?
+    rename '@running', '@idle'
+        or fatal "Can't finish backup: $!";
 }
 
 sub next_series {
@@ -163,7 +171,9 @@ sub next_series {
 
 sub next_backup {
     my ($target, $series) = @_;
-    return {};
+    return {
+        'backup' => timestamp($target->{'timestamp-format'}),
+    }
 }
 
 sub last_backup {
@@ -173,7 +183,7 @@ sub last_backup {
 sub timestamp {
     my ($fmt, $t) = @_;
     $fmt //= '%Y%m%dT%H%M%SZ';
-    $t //= time;
+    $t //= now;
     return strftime($fmt, gmtime $t);
 }
 
@@ -181,6 +191,11 @@ sub xchdir {
     my ($path) = @_;
     blather "chdir $path";
     chdir $path or fatal "Can't chdir $path: $!";
+}
+
+sub fatal {
+    print STDERR "\e[31;1m", @_, "\e[0m\n";
+    exit 2;
 }
 
 sub blather {
@@ -206,6 +221,14 @@ sub kvread {
     return \%conf;
 }
 
+sub kvwrite {
+    my ($f, $h) = @_;
+    my $fh = xopen('>', $f);
+    foreach (sort keys %$h) {
+        print $fh $_, ' ', $h->{$_}, "\n";
+    }
+}
+
 sub xopen {
     blather("open @_");
     my $f = pop;
@@ -220,5 +243,9 @@ sub xsystem {
     return if $ok;
     my $prog = shift;
     fatal "$prog: fatal [ @_ ] $!";
+}
+
+sub now {
+    $now //= time;
 }
 
