@@ -18,6 +18,7 @@ sub xsymlink;
 sub xunlink;
 sub xmkdir;
 sub xopen;
+sub xscript;
 sub now;
 
 my $root = '/var/local/backup';
@@ -41,6 +42,56 @@ sub cmd_ns {
     my $s = max(map { $_->{'series'} } @series) + 1;
     open_series($t, $s);
     print $s, "\n";
+}
+
+sub cmd_lt {
+    xchdir 'targets';
+    my @tconf = map { glob($_) } qw(*/target.conf */*/target.conf */*/*/target.conf);
+    s{/target\.conf$}{} for @tconf;
+    print $_, "\n" for @tconf;
+}
+
+sub cmd_ls {
+    my $hdr;
+    GetOptions(
+        'h' => \$hdr,
+    ) or usage;
+    usage if !@ARGV;
+    my $t = shift @ARGV;
+    xchdir "targets/$t";
+    my @series = read_series_log($t);
+    @ARGV = map { $_->{'series'} } @series if !@ARGV;
+    printf "%5s %8s %s\n", qw(nbkup nfiles target) if $hdr;
+    foreach my $s (@ARGV) {
+        my ($series) = map { $_->{'series'} eq $s ? ($_) : () } @series;
+        next if !defined $series;
+        my @b = @{ $series->{'backups'} || [] };
+        printf "%5d %8d %s\n", scalar(@b), $s, $t;
+    }
+}
+
+sub cmd_lb {
+    my $hdr;
+    GetOptions(
+        'h' => \$hdr,
+    ) or usage;
+    usage if !@ARGV;
+    my $t = shift @ARGV;
+    xchdir "targets/$t";
+    my @series = read_series_log($t);
+    @ARGV = map { $_->{'series'} } @series if !@ARGV;
+    printf "%9s %7s %3s %-16.16s %s\n", qw(nfiles size ser backup target) if $hdr;
+    foreach my $s (@ARGV) {
+        my ($series) = map { $_->{'series'} eq $s ? ($_) : () } @series;
+        fatal "no such series: $s" if !defined $series;
+        my @b = @{ $series->{'backups'} || [] };
+        foreach my $backup (@b) {
+            my $result = $backup->{'result'};
+            my $b = $backup->{'backup'};
+            %$backup = ( %$backup, %{ kvread("series/$s/$b.backup") } );
+            printf "%9d %7s %3d %-16.16s %s\n", $backup->{'files'}, num2hum($backup->{'size'}), $s, $b, $t;
+        }
+    }
 }
 
 sub open_series {
@@ -137,45 +188,60 @@ sub perform_backup {
     my ($target, $series, $backup) = @_;
     my $b = $backup->{'backup'};
     my $s = $series->{'series'};
-    my @backup = ('bin/backup');
-    if (rename "series/$s/\@empty", "series/$s/\@running") {
-        # Full backup
+    my @gather = ('bin/gather');
+    my $fhlog;
+    my $ok = eval {
+        if (rename "series/$s/\@idle", "series/$s/\@running") {
+            my $l = last_backup($series) or die "no previous backup: $s";
+            push @gather, "series/$s/all";
+        }
+        elsif (!rename "series/$s/\@empty", "series/$s/\@running") {
+            die "backup series not in coherent state: $s";
+        }
+        $fhlog = xopen('>>', 'series/series.log');
+        my $chunksize = $target->{'chunk-size'} || '64M';
+        my @split  = ('split', '-b' => $chunksize, '-a' => 3, '-d', '-', "series/$s/$b.");
+        if (run(\@gather, '2>', "series/$s/$b.eum", '|', \@split)) {
+            printf $fhlog "%d series %d backup %s ok\n", now, $s, $b;
+        }
+        else {
+            printf $fhlog "%d series %d backup %s fail %d\n", now, $s, $b, $?;
+            rename "series/$s/\@running", "series/$s/\@error";
+            fatal "Backup failed";
+        }
+        xchdir("series/$s");
+        # Record backup details
+        my $fh = xopen('<', "$b.eum");
+        my $fhall = xopen('>>', 'all.eum');
+        my $count = 0;
+        while (<$fh>) {
+            print $fhall $_;
+            $count++, next if /^[+]/;
+            $backup->{$1} = $2, next if /^\$(\S+)\s+(.*)/;
+        }
+        $backup->{'files'} = $count;
+        $backup->{'end'} ||= time;
+        $backup->{'elapsed'} = $backup->{'end'} - $backup->{'begin'};
+        kvwrite("$b.backup", $backup);
+        my @b = glob("$b.*");
+        if (run([qw(b2sum -a blake2b), @b], '>', ".$b.b2sum")) {
+            rename ".$b.b2sum", "$b.b2sum";
+        }
+        else {
+            unlink ".$b.b2sum";
+            rename '@running', '@error'
+                or fatal "Can't finish backup: $!";
+            fatal "can't checksum output: $!";
+        }
+        # Archive data files if applicable
+        xscript "$root/targets/$target/bin/archive", $b;
+        rename '@running', '@idle'
+            or fatal "Can't finish backup: $!";
+        1;
+    };
+    if (!$ok) {
+        my @b = glob("$b.*");
     }
-    elsif (rename "series/$s/\@idle", "series/$s/\@running") {
-        # Incremental
-        my $l = last_backup($series) or fatal "no previous backup: $s";
-        push @backup, "series/$s/$l";
-    }
-    else {
-        fatal "backup series not in coherent state: $s";
-    }
-    my $fhlog = xopen('>>', 'series/series.log');
-    my $chunksize = $target->{'chunk-size'} || '100M';
-    my @split  = ('split', '-b' => $chunksize, '-a' => 3, '-d', '-', "series/$s/$b.");
-    if (run(\@backup, '2>', "series/$s/$b.eum", '|', \@split)) {
-        printf $fhlog "%d series %d backup %s ok\n", now, $s, $b;
-    }
-    else {
-        printf $fhlog "%d series %d backup %s fail %d\n", now, $s, $b, $?;
-        rename '@running', '@error';
-        fatal "Backup failed";
-    }
-    xchdir('series/$s');
-    # Record backup details
-    my $fh = xopen('<', "$b.eum");
-    my $count = 0;
-    while (<$fh>) {
-        $count++, next if /^[+]/;
-        $backup->{$1} = $2, next if /^\$(\S+)\s+(.*)/;
-    }
-    $backup->{'files'} = $count;
-    $backup->{'elapsed'} = $backup->{'end'} - $backup->{'begin'};
-    kvwrite("$b.backup", $backup);
-    # Add to series archive
-    xsystem(qw(zpaq a archive), glob("$b.*"));
-    # TODO Trigger offsite?
-    rename '@running', '@idle'
-        or fatal "Can't finish backup: $!";
 }
 
 sub next_backup {
@@ -221,16 +287,16 @@ sub note {
 
 sub kvread {
     my ($f) = @_;
-    my %conf;
+    my %h;
     my $fh = xopen($f);
     while (<$fh>) {
         chomp;
         next if /^\s*(?:#.*)?$/;  # Skip blank lines and comments
-        $conf{$1} = $2, next if /^(\S+)\s+(.*)$/;
+        $h{$1} = $2, next if /^(\S+)\s+(.*)$/;
         fatal "Invalid line in $f: $_";
     }
     close $fh;
-    return \%conf;
+    return \%h;
 }
 
 sub kvwrite {
@@ -255,6 +321,12 @@ sub xsystem {
     return if $ok;
     my $prog = shift;
     fatal "$prog: fatal [ @_ ] $!";
+}
+
+sub xscript {
+    my $script = shift;
+    return if ! -x $script || ! -f _;
+    xsystem $script, @_;
 }
 
 sub xunlink {
