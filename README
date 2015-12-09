@@ -1,0 +1,137 @@
+bak performs backups (full or incremental) of user-specified targets.
+
+Each target is a directory within /var/local/backup/targets that contains a
+file named `target.conf' and a subdirectory `bin' containing an executable file
+named `gather'.  Another executable file named `archive' may also be present in
+`bin'.
+
+Each backup belongs to a particular `series', designated by a sequence of
+numbers beginning with 1.  A backup series contains one full backup followed by
+any number of backups that are incremental or differential or in some other way
+dependent on one or more other backups within the series.  A backup within a
+series must not have any dependency on a backup in any other series; a series
+is a self-contained, independent entity.  Backup series are stored in a
+separate directory (/var/local/backup/series) in order to make it simpler to
+keep the actual backup data on a dedicated partition.
+
+When culling of backup data is desired, it is expected that whole series, not
+individual backups, will be deleted.  It may be possible to safely delete
+individual backups, but bak does not have the capability to do that itself.
+
+The file tree is as shown here:
+
+    /var/local/backup/
+        targets/
+            foo/
+                target.conf
+                bin/
+                    gather
+            bar/
+                baz/
+                    target.conf
+                    bin/
+                        gather
+        series/
+            foo/
+                1/
+                    @idle
+                    series.log
+                    *.eum (backup metadata)
+                    *.000, *.001, etc. (backup data)
+                2/...
+                3/...
+            bar/
+                baz/
+                    1/...
+                    2/...
+                    3/...
+
+Currently, bak will not descend more than two levels when looking for target
+directories within the `targets' directory.
+
+GATHER
+
+The gather script for a backup target must print backup data to standard output
+and backup metadata to standard error.
+
+The base name of a backup ($BACKUP above) is a timestamp; the timestamp format
+may be anything understood by strftime(3) but always reflects the POSIX `GMT'
+time at which a backup began.  The default format is `%Y%m%dT%H%M%SZ'.  (Note
+that POSIX claims to use Coordinated Universal Time (UTC) but this is not truly
+the case; leap seconds are not specifically not taken into account.  Thus the
+timestamp should not be assumed to represent the *exact* moment the backup
+began.)
+
+If a series has no backups, bak calls the gather script with no arguments; the
+gather script is then expected to perform a full backup.  If a series already
+has one or more backups, bak will call the gather script with the base name of
+the most recent backup.  Although other types of reference are possible
+(differential, etc.) this is not currently implemented in bak.
+
+DATA
+
+The backup data that the gather script produces should be eubar(1) data but may
+if desired be in any other form -- tarball, ZIP archive, etc.  The data stream
+will be saved as a series of segments in files named $BACKUP/0, $BACKUP/1, etc.
+Every segment (except, most likely, the last) must be 64MiB (2**26 bytes) long.
+
+METADATA
+
+The metadata stream that the gather script produces must be in eubar(5) metadata format; for example:
+
+    #eubar meta 1.0
+    $begin 1448994832
+    +d d2050 i917505 p40710 u0 g0 m1448994707 c1448994707 /root
+    +f d2050 i918105 p100600 u0 g0 m1448994707 c1448994707 *18521 /root/.viminfo
+    :0 @0 *18521 /root/.viminfo
+    +f d2050 i917840 p100644 u0 g0 m1431024740 c1448979170 *652979 /root/src/2015.04.17.tar.gz
+    :0 @18521 *652979 /root/src/2015.04.17.tar.gz
+    +f d2050 i918156 p100644 u0 g0 m1428422785 c1448979170 *805253 /root/src/nginx-1.6.3.tar.gz
+    :0 @671500 *805253 /root/src/nginx-1.6.3.tar.gz
+    +d d2050 i1575426 p40755 u0 g0 m1448931591 c1448931591 /root/.dvdcss
+    $end 1448994834
+    $size 1476753
+
+See eubar(5) for details.
+
+Lines beginning with `$' specify backup properties.  The following properties
+must be present:
+
+    $backup     the backup identifier (see below)
+    $begin      the time (seconds since the Unix epoch) at which the backup began
+    $end        the time (seconds since the Unix epoch) at which the backup ended
+    $size       the size (in bytes) of the backup data
+
+The backup identifier has the form <site>:<target>:<series>:<timestamp>.
+
+<site> is configured in $BAK_ROOT/bak.conf.
+
+<target> is the path to the target relative to $BAK_ROOT/targets.
+
+The series number begins with 1.
+
+The timestamp is ...
+
+Lines beginning with `-' indicate files that have been deleted (or moved) since
+the previous backup.
+
+The metadata line for a file may, in the case of regular files and symlinks, be
+followed by a line beginning with `@' and the offset, within the backup data,
+of the contents of a file or symlink.  The file length (st_size) is also
+repeated in this line.  For regular files, a BLAKE2b hash of the file's
+contents may also be present; it is in hexadecimal form prefixed by `#'.  These
+lines should not be present unless the backup data is generated by eubar(1), as
+they are not otherwise meaningful.
+
+ARCHIVE
+
+If a target has a regular file named `archive' in its `bin' subdirectory, and
+if that file is executable by the current user (normally the superuser), then
+the script will be called after the gather script completes successfully.  A
+single argument is provided; this is the backup name, i.e., the base name of
+the files in which bak saves the backup data and metadata.
+
+An archive script is generally used to compress data files or to do any desired
+housekeeping tasks, such as updating an index of backed-up files or sending
+backups to a remote server.  bak will wait for the archive script to complete,
+and in general it should spawn subprocesses to perform any time-consuming tasks.
