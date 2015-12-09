@@ -1,0 +1,10 @@
+#!/bin/sh
+
+if [ "$1" = -i ]; then
+    shift
+    base=$1
+    shift
+    "$@" | eubdiff $base | eubar -s
+else
+    "$@" | eubar
+fi
