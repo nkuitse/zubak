@@ -1,20 +1,16 @@
 #!/bin/zsh
 
 typeset b=$1 now=$2; shift 2
-typeset key hash offset size file
+typeset hash offset size file
 
 print -l "backup $b" "begin $now" >> $b.backup
-
-key=$(bakz-genkey $b $now)
-print $key > $b.key
 
 bakz-gather $b $@ 2>> metadata |
 bakz-split $b |
 while read hash offset size file; do
     (( n++ < MAXN )) || wait
     ( bakz-compress < $file |
-      bakz-encrypt $key |
-      bakz-chunkput $b
+      bakz-save $b
     ) &
     print "@$offset *$size #$hash $file"
 done >> $b.backup
