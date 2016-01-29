@@ -4,8 +4,7 @@ PROG = bin/zubak
 MANPAGE = zubak.1
 HELPERS = bin/zubak-backup bin/zubak-compress bin/zubak-gather bin/zubak-next-backup-id bin/zubak-split
 
-default:
-	@/bin/true
+default: zubak.1
 
 install: $(PROG) $(HELPERS) install-man
 	install -d $(PREFIX)/bin
