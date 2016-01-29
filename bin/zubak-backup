@@ -1,0 +1,141 @@
+#!/bin/zsh -e
+
+# Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
+# GNU General Public License, version 3 or greater (see COPYING)
+
+### N.B.: Set globals from params, then define all functions, then run main()
+
+typeset tdir s now b bref bbase sdir
+typeset -a gathercmd
+
+main() {
+    typeset opt dryrun=false
+    while getopts :n opt; do
+        case $opt in
+            (n) dryrun=true ;;
+            (*) usage ;;
+        esac
+    done
+    shift $(( OPTIND - 1 ))
+    tdir=$1 s=$2 now=$3 b=$4 bref=$5 sdir=$1/series/$2
+    bbase=$sdir/$bref
+    typeset MAXN=6
+    typeset hash offset size file
+    integer n=0
+    typeset -a log
+    log=(
+        "begin $now"
+        "target $tdir"
+        "series $s"
+        "backup $b"
+    )
+    [[ -z $bref ]] || log+=( "base $bref" )
+    mkgathercmd
+    log+=( "command $gathercmd" )
+    if $dryrun; then
+        exec >&2
+        print 'Backup parameters:'
+        for l in $log; do
+            print -- "  $l"
+        done
+        print -l '' Script:
+        cat <<EOS
+    $gathercmd | zubak-split $sdir/$b |
+    while read hash offset size file; do
+        (( n++ < MAXN )) || wait
+        zubak-compress $sdir/\$file &
+        print "@\$offset *\$size #\$hash \$file"
+    done >> $b.backup
+    wait
+    print -l "end $(print -P '%D{%s}')" >> $b.backup
+    touch -d @$now $b.backup
+EOS
+        exit 0
+    fi
+    print -l $log >> $b.backup
+    # zubak-find $tdir $b $bref   |
+    # zubak-copy 2> $sdir/$b.meta |
+    $gathercmd | zubak-split $sdir/$b |
+    while read hash offset size file; do
+        (( n++ < MAXN )) || { wait; n=0 }
+        zubak-compress $sdir/$file &
+        print "@$offset *$size #$hash $file"
+    done >> $b.backup
+    wait
+    print -l "end $(print -P '%D{%s}')" >> $b.backup
+    touch -d @$now $b.backup
+}
+
+mkgathercmd() {
+    typeset host
+    typeset -a sources prune cmd
+    # zubak-gather [-r] [-f | -i [-b BASE]] [-c COMMAND]
+    conf findcmd find | read -A cmd
+    conf host | read host
+    if [[ -z $host || $host == localhost ]]; then
+        host=''
+    else
+        cmd=( ssh $host $cmd )
+    fi
+    conf sources |
+    while read src; do
+        case "$src" in
+            (/*) cmd+=( "$src" ) ;;
+            (*)  fatal "Relative sources are not allowed: $src" ;;
+        esac
+    done
+    conf filters |
+    while read filter; do
+        case "$filter" in
+            (name:*)
+                cmd+=( -name "${filter[6,-1]}" -prune -o ) ;;
+            (path:*)
+                cmd+=( -path "${filter[6,-1]}" -prune -o ) ;;
+            (regex:*)
+                cmd+=( -regex "${filter[7,-1]}" -prune -o ) ;;
+            (*)
+                cmd+=( -name "$filter" -prune -o ) ;;
+        esac
+    done
+    if [[ -n $bref ]]; then
+        if [[ -n $host ]]; then
+            integer m=$(minutes-since-backup)
+            let m++
+            cmd+=( -cmin -$min )
+        else
+            cmd+=( -newer $sdir/$bref.backup )
+        fi
+    fi
+    gathercmd=( $cmd -print )
+}
+
+minutes-since-backup() {
+    b=$1
+    integer age=$(perl -e '($f, $now) = @ARGV; @s = stat($f); print("0\n"), exit 2 if !@s; print int(($now-$s[9])/60)' $b.backup $now)
+    (( age > 0 )) || fatal "Can't stat $b.backup"
+
+}
+
+trace() {
+    print "> $@" >> /tmp/zubak.$$.trace
+}
+
+conf() {
+    typeset k=$1 default=$2
+    trace conf k=$1 default=$2
+    trace -- -e $tdir/conf/$k
+    if [[ -e $tdir/conf/$k ]]; then
+        trace egrep -v '^[ \t]*(#.*)?$' $tdir/conf/$k
+        egrep -v '^[ \t]*(#.*)?$' $tdir/conf/$k
+    elif [[ -n $default ]]; then
+        trace print -- $default
+        print -- $default
+    fi
+}
+
+fatal() {
+    print -- "$@" >&2
+    exit 2
+}
+
+main "$@"

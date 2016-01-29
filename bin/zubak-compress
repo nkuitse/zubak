@@ -1,0 +1,6 @@
+#!/bin/zsh -e
+
+# Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
+# GNU General Public License, version 3 or greater (see COPYING)
+
+exec gzip "$@"

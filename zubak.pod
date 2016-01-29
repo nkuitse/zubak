@@ -1,0 +1,38 @@
+=head1 NAME
+
+zubak - simple backups using zsh
+
+=head1 VERSION
+
+0.01
+
+=head1 SYNOPSIS
+
+    # zubak nt TARGET
+    # zubak ns TARGET
+    # zubak up TARGET
+
+=head1 DESCRIPTION
+
+...
+
+=head1 DIAGNOSTICS
+
+B<zubak> exits with status 0 if all went well, 1 if invoked incorrectly, or 2
+if some other error occurred.
+
+=head1 BUGS AND LIMITATIONS
+
+None known.
+
+=head1 AUTHOR
+
+Paul Hoffman <nkuitse@nkuitse.com>
+
+=head1 LICENCE AND COPYRIGHT
+
+Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
+
+GNU General Public License, version 3 or greater (see COPYING)
+
+=cut

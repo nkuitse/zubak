@@ -1,0 +1,10 @@
+#!/bin/zsh
+
+# Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
+# GNU General Public License, version 3 or greater (see COPYING)
+
+typeset now=$1 tdir=$2
+typeset fmt='%Y%m%dT%H%M%S'
+
+[[ ! -e $tdir/conf/timeformat ]] || fmt=$(cat $tdir/conf/timeformat)
+exec date -d @$1 +$fmt

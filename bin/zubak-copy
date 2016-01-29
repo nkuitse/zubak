@@ -1,0 +1,12 @@
+#!/bin/zsh
+
+# Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
+# GNU General Public License, version 3 or greater (see COPYING)
+
+typeset b=$1 bprev=$2
+
+if [[ -n $bprev ]]; then
+    eubdiff $bprev | eubar -s
+else
+    eubar
+fi

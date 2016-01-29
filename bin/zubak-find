@@ -1,0 +1,49 @@
+#!/bin/zsh -e
+
+# Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
+# GNU General Public License, version 3 or greater (see COPYING)
+
+main() {
+    typeset tdir=$1 b=$2 bref=$3
+    typeset -a sources prune cmd
+    conf $tdir find-command find | read -A cmd
+    conf $tdir sources |
+    while read src; do
+        case "$src" in
+            (/*)  cmd+=( "$src" ) ;;
+            (*)   fatal "Relative source are not allowed: $src" ;;
+        esac
+    done
+    conf $tdir filters |
+    while read filter; do
+        case "$filter" in
+            (name:*)
+                cmd+=( -name "${filter[6,-1]}" -prune -o ) ;;
+            (path:*)
+                cmd+=( -path "${filter[6,-1]}" -prune -o ) ;;
+            (regex:*)
+                cmd+=( -regex "${filter[7,-1]}" -prune -o ) ;;
+            (*)
+                cmd+=( -name "$filter" -prune -o ) ;;
+        esac
+    done
+    if [[ -z $bref ]] || cmd+=( -newer $bref.backup )
+    [[ -z $ZUBAK_DEBUG ]] || print -l FIND $cmd -print '' >&2
+    $cmd -print
+}
+
+conf() {
+    typeset $tdir=$1 k=$2 default=$3
+    if [[ -e $tdir/conf/$k ]]; then
+        egrep -v '^[ \t]*(#.*)?$' $tdir/conf/$k
+    elif [[ -n $default ]]; then
+        print -- $default
+    fi
+}
+
+fatal() {
+    print -- "$@" >&2
+    exit 2
+}
+
+main "$@"

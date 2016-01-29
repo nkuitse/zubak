@@ -1,0 +1,67 @@
+#!/usr/bin/perl
+
+# Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
+# GNU General Public License, version 3 or greater (see COPYING)
+
+use strict;
+use warnings;
+use bigint;
+
+use Digest;
+
+sub usage;
+
+# Parse options
+my $chunk_size = 1<<26;
+if (@ARGV && $ARGV[0] =~ /^-b(.*)/) {
+    $chunk_size = size2bytes($2 || (@ARGV && shift @ARGV) || usage);
+}
+
+usage if @ARGV != 1;
+my ($dest) = @ARGV;
+if ($dest !~ /(^|[^\\])\%/) {
+    $dest =~ s{/$}{/%03d} or
+    $dest =~ s/\.?$/.%03d/;
+}
+
+my $buf;
+my $dig = Digest->new('SHA-256');
+my $offset = 0;
+my $number = 0;
+
+binmode STDIN;
+binmode STDOUT;
+
+my $fmt = '%03d';
+while (my $size = read(STDIN, $buf, $chunk_size)) {
+    $dig->add($buf);
+    my $out = sprintf($dest, $number++);
+    open my $fh, '>', $out
+        or die "Can't open data file $out: $!";
+    binmode $fh;
+    $size == syswrite $fh, $buf
+        or die "Can't write $out: $!";
+    close $fh;
+    printf "%s %ld %ld %s\n",
+        $dig->hexdigest,
+        $offset,
+        $size,
+        $out;
+    $offset += $size;
+}
+
+
+sub size2bytes {
+    my ($size) = @_;
+    return $size * (1<<30) if $size =~ s/GB?$//i;
+    return $size * (1<<20) if $size =~ s/MB?$//i;
+    return $size * (1<<10) if $size =~ s/KB?$//i;
+    usage if $size !~ /^[0-9][0-9]*$/;
+    return $size;
+}
+
+sub usage {
+    print STDERR "usage: zubak-split [-b SIZE] DEST\n";
+    exit 1;
+}
+

@@ -1,0 +1,210 @@
+#!/bin/zsh -e
+
+# Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
+# GNU General Public License, version 3 or greater (see COPYING)
+
+typeset PROG=$0
+typeset NAME=$0:t
+typeset VERSION=0.02
+typeset YEARS=2016
+typeset AUTHOR='Paul Hoffman'
+typeset EMAIL=nkuitse@nkuitse.com
+
+typeset root=${ZUBAK_ROOT:=/var/local/backup}
+typeset now
+
+path+=( $root/bin )
+
+main() {
+    (( $# > 0 )) || set null
+    now=$(now)
+    typeset cmd=$1; shift
+    egrep -q "^cmd_$cmd()" $PROG || usage
+    cmd_$cmd "$@"
+}
+
+# Commands
+
+cmd_nt() {
+    #@ nt TARGET :: create a new target
+    (( $# == 1 )) || usage nt
+    typeset t=$1; shift
+    tdir=$root/targets/$t
+    [[ ! -d $tdir ]] || fatal "Target already exists: $t"
+    mkdir -p $tdir/0/@empty
+    mkdir -p $tdir/conf $tdir/series
+    ln -s 0 $tdir/series/current
+    ${VISUAL:-${EDITOR:-vim}} $tdir/conf/sources
+    print $now target $t created >> $root/targets/targets.log
+    # XXX What else?
+}
+
+cmd_lt() {
+    #@ lt :: list targets
+    awk '/^[0-9]+ target [^ ]+ created/ {print $3}' $root/targets/targets.log
+}
+
+cmd_ls() {
+    #@ ls TARGET :: list series within a target
+    (( $# == 1 )) || usage ls
+    cdtarg $1; shift
+    awk '/^[0-9]+ series [^ ]+ open/ {print $3}' series/series.log
+}
+
+cmd_lb() {
+    #@ lb TARGET [SERIES] :: list backups within a target (default: current series)
+    typeset t=$1; shift
+    cdtarg $t
+    typeset tdir=$PWD
+    typeset s=${1:-$(current-series $tdir)}
+    typeset sdir=$tdir/series/$s
+    typeset -a backups
+    backups=( $(backups-in-series $sdir) )
+    (( $#backups == 0 )) || print -l $backups
+}
+
+cmd_ns() {
+    #@ ns TARGET :: create a new series
+    (( $# == 1 )) || usage ns
+    cdtarg $1; shift
+    typeset tdir=$PWD
+    typeset scur=$(current-series $tdir)
+    [[ $scur == [0-9]* ]] || fatal "Unrecognized series: $scur"
+    integer snew=$(( scur + 1 ))
+    mkdir -p $tdir/series/$snew
+    mv $tdir/series/$scur/@* $tdir/series/$snew/@empty
+    {
+        if (( scur == 0 )); then
+            rmdir $tdir/series/$scur
+        else
+            print $now series $scur close
+        fi
+        print $now series $snew open
+    } >> $tdir/series/series.log
+    rm -f $tdir/series/current
+    ln -s $snew $tdir/series/current
+    cp -r $tdir/conf $tdir/current/
+}
+
+cmd_up() {
+    #@ up TARGET :: perform a backup
+    typeset opt dryrun=false
+    typeset -a upopts
+    while getopts :n opt; do
+        case $opt in
+            (n) dryrun=true
+                upopts+=( -n );;
+            (*) usage up ;;
+        esac
+    done
+    shift $(( OPTIND - 1 ))
+    (( $# == 1 )) || usage up
+    typeset t=$1; shift
+    cdtarg $t
+    typeset tdir=$PWD
+    path+=( $tdir/bin.$(uname) $tdir/bin )
+    typeset s=$(current-series $tdir)
+    typeset sdir=$tdir/series/$s
+    typeset bref=$(latest-backup-in-series $sdir)
+    typeset b=$(zubak-next-backup-id $now $tdir)
+    $dryrun || print $now series $s backup $b begin >> $tdir/series/series.log
+    zubak-backup $upopts $tdir $now $b $bref
+    $dryrun || print $(now) series $s backup $b end >> $tdir/series/series.log
+}
+
+cmd_version() {
+    #@ version [-v] :: print zubak version (-v and copyright information)
+    if [[ $1 == -v ]]; then
+        VERSION
+        COPYRIGHT
+        LICENSE
+    else
+        print $VERSION
+    fi
+}
+
+cmd_help() {
+    #@ help :: print help info
+    print -l "usage: $NAME COMMAND [ARG...]" commands: >&2
+    perl -ne '
+        printf STDERR "    %-16s %s\n", $1, $2 if /^ +#@ (.+) :: (.+)/
+    ' $PROG
+}
+
+cmd_null() {
+    # No command was given
+    cmd_help
+    exit 1
+}
+
+# --- Utility functions
+
+backups-in-series() {
+    typeset sdir=$1
+    typeset -a backups
+    backups=( $sdir/*.backup(.NOm) )
+    (( $#backups == 0 )) || print -l $backups:t:r
+}
+
+latest-backup-in-series() {
+    typeset sdir=$1
+    typeset -a backups
+    backups=( $(backups-in-series $sdir) )
+    (( $#backups )) || return 0
+    print ${backups[-1]}
+}
+
+current-series() {
+    typeset tdir=$1
+    [[ -h $tdir/series/current ]] || fatal "No current series in $tdir"
+    readlink $tdir/series/current
+}
+
+now() {
+    print -P '%D{%s}'
+}
+
+targdir() {
+    print $root/targets/$1
+}
+
+cdtarg() {
+    typeset t=$1; shift
+    [[ -d $root/targets/$t/$* ]] || fatal "No such target: $t"
+    cd $root/targets/$t/$*
+}
+
+usage() {
+    if (( $# == 1 )); then
+        perl -ne "
+            printf qq{usage: %s %s\n}, qq{$NAME}, \$1 if /#@ (${1[5,-1]} .+) :: (.+)/
+        " $PROG
+    else
+        print "usage: $NAME COMMAND [ARG...]" >&2
+        print "       $NAME help" >&2
+    fi
+    exit 1
+}
+
+fatal() {
+    print -- "$@" >&2
+    exit 2
+}
+
+VERSION() {
+    print "This is $NAME version $VERSION" >&2
+}
+
+COPYRIGHT() {
+    print "Copyright $YEARS $AUTHOR <$EMAIL>" >&2
+}
+
+LICENSE() {
+    cat <<EOS >&2
+GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+EOS
+}
+
+main "$@"
