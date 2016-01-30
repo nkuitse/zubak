@@ -4,12 +4,12 @@ HELPER SCRIPTS
 zubak relies on a number of helper scripts, each named zubak-NAME (for
 example, the gather script is named zubak-gather); here is a complete list:
 
-    zubak-archive
     zubak-backup
-    zubak-compress
     zubak-gather
     zubak-next-backup-id
     zubak-split
+    zubak-compress
+    zubak-archive
 
 zubak comes with a default implementation of each (installed in
 $PREFIX/libexec/zubak) but a custom helper placed in the zubak root's `bin'
@@ -68,6 +68,18 @@ specified in `conf/timeformat'; the default format is `%Y%m%dT%H%M%SZ'.  The
 timestamp format may be anything understood by strftime(3) but always reflects
 the POSIX `GMT' time at which a backup began.  The next-backup-id helper may
 be overridden to generate site- or backup-specific backup ID.
+
+zubak-split
+-----------
+
+This helper writes the stream of gathered backup data (not metadata!) to a
+series of files named $BACKUP.000, $BACKUP.001, etc.  Each file (a `segment')
+except the last must be 64 Mi (1<<26) bytes in size.
+
+zubak-compress
+--------------
+
+Compresses each segment file using gzip.
 
 zubak-archive
 -------------
