@@ -53,8 +53,6 @@ EOS
         exit 0
     fi
     print -l $log >> $b.backup
-    # zubak-find $tdir $b $bref   |
-    # zubak-copy 2> $sdir/$b.meta |
     $gathercmd | zubak-split $sdir/$b |
     while read hash offset size file; do
         (( n++ < MAXN )) || { wait; n=0 }
