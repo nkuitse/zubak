@@ -1,4 +1,4 @@
-#!/bin/zsh -e
+slog
 
 # Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
 # GNU General Public License, version 3 or greater (see COPYING)
@@ -29,26 +29,26 @@ cmd_nt() {
     #@ nt TARGET :: create a new target
     (( $# == 1 )) || usage nt
     typeset t=$1; shift
-    tdir=$root/targets/$t
+    tdir=$(targdir $t)
     [[ ! -d $tdir ]] || fatal "Target already exists: $t"
     mkdir -p $tdir/0/@empty
     mkdir -p $tdir/conf $tdir/series
     ln -s 0 $tdir/series/current
     ${VISUAL:-${EDITOR:-vim}} $tdir/conf/sources
-    print $now target $t created >> $root/targets/targets.log
-    # XXX What else?
+    print $now target $t created >> $(targlog)
+    print $t >> $(targlist)
 }
 
 cmd_lt() {
     #@ lt :: list targets
-    awk '/^[0-9]+ target [^ ]+ created/ {print $3}' $root/targets/targets.log
+    cat $(targlist)
 }
 
 cmd_ls() {
     #@ ls TARGET :: list series within a target
     (( $# == 1 )) || usage ls
-    cdtarg $1; shift
-    awk '/^[0-9]+ series [^ ]+ open/ {print $3}' series/series.log
+    cat $(serlist $(targdir $1))
+    ### awk '/^[0-9]+ series [^ ]+ open/ {print $3}' $(serlog $(targdir $1))
 }
 
 cmd_lb() {
@@ -80,7 +80,8 @@ cmd_ns() {
             print $now series $scur close
         fi
         print $now series $snew open
-    } >> $tdir/series/series.log
+    } >> $(serlog $tdir)
+    print $snew >> $(serlist $tdir)
     rm -f $tdir/series/current
     ln -s $snew $tdir/series/current
     cp -r $tdir/conf $tdir/current/
@@ -107,9 +108,10 @@ cmd_up() {
     typeset sdir=$tdir/series/$s
     typeset bref=$(latest-backup-in-series $sdir)
     typeset b=$(zubak-next-backup-id $now $tdir)
-    $dryrun || print $now series $s backup $b begin >> $tdir/series/series.log
+    typeset slog=$(serlog $tdir)
+    $dryrun || print $now series $s backup $b begin >> $slog
     zubak-backup $upopts $tdir $now $b $bref
-    $dryrun || print $(now) series $s backup $b end >> $tdir/series/series.log
+    $dryrun || print $(now) series $s backup $b end >> $slog
 }
 
 cmd_version() {
@@ -138,6 +140,22 @@ cmd_null() {
 }
 
 # --- Utility functions
+
+serlist() {
+    print $1/series.list
+}
+
+serlog() {
+    print $1/series/series.log
+}
+
+targlist() {
+    print $root/targets.list
+}
+
+targlog() {
+    print $root/targets/targets.log
+}
 
 backups-in-series() {
     typeset sdir=$1
