@@ -1,4 +1,4 @@
-slog
+#!/bin/zsh
 
 # Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
 # GNU General Public License, version 3 or greater (see COPYING)
@@ -33,7 +33,7 @@ cmd_nt() {
     [[ ! -d $tdir ]] || fatal "Target already exists: $t"
     mkdir -p $tdir/0/@empty
     mkdir -p $tdir/conf $tdir/series
-    ln -s 0 $tdir/series/current
+    ln -s 0 $(serdir $tdir current)
     ${VISUAL:-${EDITOR:-vim}} $tdir/conf/sources
     print $now target $t created >> $(targlog)
     print $t >> $(targlist)
@@ -54,10 +54,10 @@ cmd_ls() {
 cmd_lb() {
     #@ lb TARGET [SERIES] :: list backups within a target (default: current series)
     typeset t=$1; shift
-    cdtarg $t
-    typeset tdir=$PWD
+    typeset tdir=$(targdir $t)
+    cd $tdir
     typeset s=${1:-$(current-series $tdir)}
-    typeset sdir=$tdir/series/$s
+    typeset sdir=$(serdir $tdir $s)
     typeset -a backups
     backups=( $(backups-in-series $sdir) )
     (( $#backups == 0 )) || print -l $backups
@@ -66,25 +66,28 @@ cmd_lb() {
 cmd_ns() {
     #@ ns TARGET :: create a new series
     (( $# == 1 )) || usage ns
-    cdtarg $1; shift
+    cd $(targdir $1); shift
     typeset tdir=$PWD
     typeset scur=$(current-series $tdir)
     [[ $scur == [0-9]* ]] || fatal "Unrecognized series: $scur"
     integer snew=$(( scur + 1 ))
-    mkdir -p $tdir/series/$snew
-    mv $tdir/series/$scur/@* $tdir/series/$snew/@empty
+    typeset snewdir=$(serdir $tdir $snew)
+    typeset scurdir=$(serdir $tdir $scur)
+    mkdir -p $snewdir
+    mv $scurdir/@* $snewdir/@empty
     {
         if (( scur == 0 )); then
-            rmdir $tdir/series/$scur
+            rmdir $scurdir
         else
             print $now series $scur close
         fi
         print $now series $snew open
     } >> $(serlog $tdir)
     print $snew >> $(serlist $tdir)
-    rm -f $tdir/series/current
-    ln -s $snew $tdir/series/current
-    cp -r $tdir/conf $tdir/current/
+    typeset symlink=$(serdir $tdir current)
+    rm -f $symlink
+    ln -s $snew $symlink
+    cp -r $tdir/conf $scurdir/
 }
 
 cmd_up() {
@@ -101,11 +104,11 @@ cmd_up() {
     shift $(( OPTIND - 1 ))
     (( $# == 1 )) || usage up
     typeset t=$1; shift
-    cdtarg $t
-    typeset tdir=$PWD
+    typeset tdir=$(targdir $t)
+    cd $tdir
     path+=( $tdir/bin.$(uname) $tdir/bin )
     typeset s=$(current-series $tdir)
-    typeset sdir=$tdir/series/$s
+    typeset sdir=$(serdir $tdir $s)
     typeset bref=$(latest-backup-in-series $sdir)
     typeset b=$(zubak-next-backup-id $now $tdir)
     typeset slog=$(serlog $tdir)
@@ -141,6 +144,18 @@ cmd_null() {
 
 # --- Utility functions
 
+targlist() {
+    print $root/targets.list
+}
+
+targlog() {
+    print $root/targets/targets.log
+}
+
+targdir() {
+    print $root/targets/$1
+}
+
 serlist() {
     print $1/series.list
 }
@@ -149,12 +164,8 @@ serlog() {
     print $1/series/series.log
 }
 
-targlist() {
-    print $root/targets.list
-}
-
-targlog() {
-    print $root/targets/targets.log
+serdir() {
+    print $1/series/$2
 }
 
 backups-in-series() {
@@ -174,22 +185,13 @@ latest-backup-in-series() {
 
 current-series() {
     typeset tdir=$1
-    [[ -h $tdir/series/current ]] || fatal "No current series in $tdir"
-    readlink $tdir/series/current
+    typeset sdir=$(serdir $tdir current)
+    [[ -h $sdir ]] || fatal "No current series in $tdir"
+    readlink $sdir
 }
 
 now() {
     print -P '%D{%s}'
-}
-
-targdir() {
-    print $root/targets/$1
-}
-
-cdtarg() {
-    typeset t=$1; shift
-    [[ -d $root/targets/$t/$* ]] || fatal "No such target: $t"
-    cd $root/targets/$t/$*
 }
 
 usage() {
