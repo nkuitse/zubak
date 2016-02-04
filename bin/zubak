@@ -13,7 +13,7 @@ typeset EMAIL=nkuitse@nkuitse.com
 typeset root=${ZUBAK_ROOT:=/var/local/backup}
 typeset now
 
-path+=( $root/bin )
+path+=( $root/bin /usr/local/libexec/zubak )
 
 main() {
     (( $# > 0 )) || set null
