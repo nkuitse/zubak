@@ -113,7 +113,7 @@ cmd_up() {
     typeset b=$(zubak-next-backup-id $now $tdir)
     typeset slog=$(serlog $tdir)
     $dryrun || print $now series $s backup $b begin >> $slog
-    zubak-backup $upopts $tdir $now $b $bref
+    zubak-backup $upopts $tdir $s $now $b $bref
     $dryrun || print $(now) series $s backup $b end >> $slog
 }
 
