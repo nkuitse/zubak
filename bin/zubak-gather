@@ -16,8 +16,8 @@ main() {
         if [[ -n $bref ]]; then
             # ssh $thishost zubak-gather -c -i BASE [-e COMMAND] ARG... [< BASE.eum]
             tmp=$(mktemp -d /tmp/zubak-gather.$$.XXXXXX)
-            cat > $tmp/$bref.eum || exit 2
-            $cmd $@ | eubdiff $tmp/$bref | eubar -s
+            cat > $tmp/all.eum || exit 2
+            $cmd $@ | eubdiff $tmp/all | eubar -s
             if [[ -d /var/local/backup/local/ ]]; then
                 mv $tmp /var/local/backup/local/
             else

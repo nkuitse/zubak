@@ -68,6 +68,7 @@ EOS
         print "@$offset *$size #$hash $file"
     done >> $bbase.backup
     wait
+    grep '^[-+]' < $bbase.eum >> $sdir/meta
     print -l "end $(print -P '%D{%s}')" >> $bbase.backup
     touch -d @$now $bbase.backup
     mv $sdir/@busy $sdir/@idle ||
