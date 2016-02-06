@@ -3,13 +3,11 @@
 # Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
 # GNU General Public License, version 3 or greater (see COPYING)
 
-### N.B.: Set globals from params, then define all functions, then run main()
-
-typeset tdir s now b bref bbase sdir
-typeset -a gathercmd
+typeset tdir s now b bbase bref brefbase sdir dryrun=false
+typeset -a backupcmd
 
 main() {
-    typeset opt dryrun=false
+    typeset opt l p
     while getopts :n opt; do
         case $opt in
             (n) dryrun=true ;;
@@ -18,7 +16,8 @@ main() {
     done
     shift $(( OPTIND - 1 ))
     tdir=$1 s=$2 now=$3 b=$4 bref=$5 sdir=$1/series/$2
-    bbase=$sdir/$bref
+    bbase=$sdir/$b
+    brefbase=$sdir/$bref
     typeset MAXN=6
     typeset hash offset size file
     integer n=0
@@ -30,88 +29,107 @@ main() {
         "backup $b"
     )
     [[ -z $bref ]] || log+=( "base $bref" )
-    mkgathercmd
-    log+=( "command $gathercmd" )
+    mkbackupcmd
+    log+=( "command $backupcmd" )
     if $dryrun; then
         exec >&2
+        print 'Path:'
+        for p in $path; do
+            print -- "  $p"
+        done
         print 'Backup parameters:'
         for l in $log; do
             print -- "  $l"
         done
         print -l '' Script:
         cat <<EOS
-    $gathercmd | zubak-split $sdir/$b |
+    $backupcmd 2> $bbase.eum |
+    zubak-split $bbase |
     while read hash offset size file; do
-        (( n++ < MAXN )) || wait
-        zubak-compress $sdir/\$file &
+        (( n++ < MAXN )) || { wait; n=0 }
+        zubak-compress \$file &
         print "@\$offset *\$size #\$hash \$file"
-    done >> $b.backup
+    done >> $bbase.backup
     wait
-    print -l "end $(print -P '%D{%s}')" >> $b.backup
-    touch -d @$now $b.backup
+    print -l "end \$(print -P '%D{%s}')" >> $bbase.backup
+    touch -d @$now $bbase.backup
 EOS
         exit 0
     fi
-    print -l $log >> $b.backup
-    $gathercmd | zubak-split $sdir/$b |
+    mv $sdir/@idle $sdir/@busy  ||
+    mv $sdir/@empty $sdir/@busy ||
+    fatal "Can\'t set series $s to busy; may be in unknown state"
+    print -l $log >> $bbase.backup
+    $backupcmd 2> $bbase.eum |
+    zubak-split $bbase |
     while read hash offset size file; do
         (( n++ < MAXN )) || { wait; n=0 }
-        zubak-compress $sdir/$file &
+        zubak-compress $file &
         print "@$offset *$size #$hash $file"
-    done >> $b.backup
+    done >> $bbase.backup
     wait
-    print -l "end $(print -P '%D{%s}')" >> $b.backup
-    touch -d @$now $b.backup
+    print -l "end $(print -P '%D{%s}')" >> $bbase.backup
+    touch -d @$now $bbase.backup
+    mv $sdir/@busy $sdir/@idle ||
+    fatal "Can\'t set series $s to idle"
 }
 
-mkgathercmd() {
+mkbackupcmd() {
     typeset host
-    typeset -a sources prune cmd
-    # zubak-gather [-r] [-f | -i [-b BASE]] [-c COMMAND]
-    conf findcmd find | read -A cmd
+    typeset -a sources prune cmdpfx findcmd findargs
     conf host | read host
     if [[ -z $host || $host == localhost ]]; then
+        # zubak-gather [-f | -i BASE] [-e COMMAND]
         host=''
     else
-        cmd=( ssh $host $cmd )
+        cmdpfx=( ssh $host )
     fi
     conf sources |
     while read src; do
         case "$src" in
-            (/*) cmd+=( "$src" ) ;;
+            (/*) findargs+=( "$src" ) ;;
             (*)  fatal "Relative sources are not allowed: $src" ;;
         esac
     done
-    conf filters |
-    while read filter; do
-        case "$filter" in
+    typeset x
+    conf exclude |
+    while read x; do
+        case "$x" in
             (name:*)
-                cmd+=( -name "${filter[6,-1]}" -prune -o ) ;;
+                findargs+=( -name "${x[6,-1]}" -prune -o ) ;;
             (path:*)
-                cmd+=( -path "${filter[6,-1]}" -prune -o ) ;;
+                findargs+=( -path "${x[6,-1]}" -prune -o ) ;;
             (regex:*)
-                cmd+=( -regex "${filter[7,-1]}" -prune -o ) ;;
+                findargs+=( -regex "${x[7,-1]}" -prune -o ) ;;
             (*)
-                cmd+=( -name "$filter" -prune -o ) ;;
+                findargs+=( -name "$x" -prune -o ) ;;
         esac
     done
+    backupcmd=( zubak-gather )
+    [[ -z $host ]] || backupcmd+=( -c )
     if [[ -n $bref ]]; then
+        backupcmd+=( -i $brefbase )
         if [[ -n $host ]]; then
-            integer m=$(minutes-since-backup)
+            integer m=$(minutes-since-backup $brefbase)
             let m++
-            cmd+=( -cmin -$min )
+            findargs+=( -cmin -$min )
         else
-            cmd+=( -newer $sdir/$bref.backup )
+            findargs+=( -newer $brefbase.backup )
         fi
     fi
-    gathercmd=( $cmd -print )
+    conf findcmd find | read -A findcmd
+    if (( $#findcmd == 0 )); then
+        findcmd=( find $findargs -print )
+    else
+        findcmd+=( $findargs )
+    fi
 }
 
 minutes-since-backup() {
-    b=$1
+    typeset b=$1
     integer age=$(perl -e '($f, $now) = @ARGV; @s = stat($f); print("0\n"), exit 2 if !@s; print int(($now-$s[9])/60)' $b.backup $now)
-    (( age > 0 )) || fatal "Can't stat $b.backup"
-
+    (( $? == 0 )) || fatal "Can't stat $b.backup"
+    print $age
 }
 
 trace() {

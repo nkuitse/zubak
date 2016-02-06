@@ -1,44 +1,39 @@
 #!/bin/zsh
 
 main() {
-    typeset opt full=false incr=false remote=false base cmd=find tmp
-    while getopts :firb:c: opt; do
+    typeset opt clientmode=false bref cmd=find tmp
+    while getopts :ci:e: opt; do
         case $opt in
-            (f) full=true ;;
-            (i) incr=true ;;
-            (r) remote=true ;;
-            (b) base=$OPTARG ;;
-            (c) cmd=$OPTARG ;;
+            (c) clientmode=true ;;
+            (i) bref=$OPTARG ;;
+            (e) cmd=$OPTARG ;;
         esac
     done
     shift $(( OPTIND - 1 ))
-    $full || $incr || exit 1
-    $full && $incr && exit 1
-    if $remote; then
-        # ssh $host zubak-gather -r -f [-c COMMAND] ARG...
-        # ssh $host zubak-gather -r -i [-c COMMAND] ARG... [< BASE.eum]
-        [[ -z $base ]] || exit 2
-        if $incr; then
+    if $clientmode; then
+        # This script is being run on the client machine; output will go to the server
+        [[ -z $bref ]] || exit 2
+        if [[ -n $bref ]]; then
+            # ssh $thishost zubak-gather -c -i BASE [-e COMMAND] ARG... [< BASE.eum]
             tmp=$(mktemp -d /tmp/zubak-gather.$$.XXXXXX)
-            [[ -d $tmp ]] || exit 2
-            base=$tmp/base
-            cat > $base.eum || exit 2
-            $cmd $@ | eubdiff $base | eubar -s
+            cat > $tmp/$bref.eum || exit 2
+            $cmd $@ | eubdiff $tmp/$bref | eubar -s
+            if [[ -d /var/local/backup/local/ ]]; then
+                mv $tmp /var/local/backup/local/
+            else
+                rm -Rf $tmp
+            fi
         else
+            # ssh $thishost zubak-gather -c -f [-e COMMAND] ARG...
             $cmd $@ | eubar
         fi
-    elif [[ -n $base ]]; then
-        # zubak-gather -i -b BASE [-i] [-c COMMAND] ARG...
-        $incr || exit 2
-        $cmd $@ | eubdiff $base | eubar -s
-    elif $incr; then
-        # zubak-gather -i [-c COMMAND] ARG... => ERROR
-        exit 1
+    elif [[ -n $bref ]]; then
+        # zubak-gather -i BASE [-e COMMAND] ARG...
+        $cmd $@ | eubdiff $bref | eubar -s
     else
-        # zubak-gather -f [-c COMMAND] ARG...
+        # zubak-gather -f [-e COMMAND] ARG...
         $cmd $@ | eubar
     fi
-    [[ -z $tmp ]] || rm -Rf $tmp
 }
 
 main "$@"
