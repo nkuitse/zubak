@@ -13,7 +13,7 @@ typeset EMAIL=nkuitse@nkuitse.com
 typeset root=${ZUBAK_ROOT:=/var/local/backup}
 typeset now
 
-path+=( $root/bin /usr/local/libexec/zubak )
+path=( /usr/local/libexec/zubak $root/bin $path )
 
 main() {
     (( $# > 0 )) || set null
@@ -106,7 +106,7 @@ cmd_up() {
     typeset t=$1; shift
     typeset tdir=$(targdir $t)
     cd $tdir
-    path+=( $tdir/bin.$(uname) $tdir/bin )
+    path=( $tdir/bin.$(uname) $tdir/bin $path )
     typeset s=$(current-series $tdir)
     typeset sdir=$(serdir $tdir $s)
     typeset bref=$(latest-backup-in-series $sdir)
