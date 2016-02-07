@@ -17,6 +17,6 @@ $(MANPAGE): zubak.pod
 
 install-man: $(MANPAGE)
 	install -d $(PREFIX)/man/
-	install $(MANPAGE) $(PREFIX)/man/
+	install $(MANPAGE) $(PREFIX)/man/man1/
 
 .PHONY: default install install-man
