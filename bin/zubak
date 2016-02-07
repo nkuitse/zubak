@@ -31,9 +31,8 @@ cmd_nt() {
     tdir=$(targdir $t)
     [[ ! -d $tdir ]] || fatal "Target already exists: $t"
     mkdir -p $tdir/0/@empty
-    mkdir -p $tdir/conf $tdir/series
+    mkdir -p $tdir/series
     ln -s 0 $(serdir $tdir current)
-    ${VISUAL:-${EDITOR:-vim}} $tdir/conf/sources
     print $(now) target $t created >> $(targlog)
     print $t >> $(targlist)
 }
@@ -87,18 +86,17 @@ cmd_ns() {
     typeset symlink=$(serdir $tdir current)
     rm -f $symlink
     ln -s $snew $symlink
-    cp -r $tdir/conf $scurdir/
-    touch $scurdir/full.eum $scurdir/incr.eum
+    touch $snewdir/full.eum $snewdir/incr.eum
 }
 
 cmd_up() {
     #@ up TARGET [-n] [-f|-i|-d] :: perform a backup
     typeset opt dryrun=false mode=incr
-    typeset -a upopts
+    typeset -a zgopts
     while getopts :nfid opt; do
         case $opt in
             (n) dryrun=true
-                upopts+=( -n );;
+                zgopts+=( -n );;
             (f) mode=full ;;
             (i) mode=incr ;;
             (d) mode=diff ;;
@@ -121,39 +119,40 @@ cmd_up() {
     fi
 
     if $dryrun; then
-        print "DRY RUN : $now series $scur backup $bkup mode $mode begin" >&2
-        print "DRY RUN :" =zubak-find $mode "|" =zubak-gather "$upopts $mode" >&2
-        zubak-find $mode | zubak-gather $upopts $mode > /dev/null 2> >(sed 's/^/        > /' >&2)
-        print "DRY RUN : $(now) series $scur backup $bkup mode $mode end" >&2
+        print "DRY RUN : $now series $scur backup $bkup mode $mode begin"
+        print "DRY RUN :" =zubak-find "|" =zubak-gather "$zgopts $mode"
+        zubak-find | zubak-gather $zgopts $mode > /dev/null 2> >(sed 's/^/        > /')
+        print "DRY RUN : $(now) series $scur backup $bkup mode $mode end"
         exit 0
-    fi
+    fi >&2
 
     # Start
-    print -l "begin $now" "target $PWD" "series $s" "backup $b" "mode $mode" >> $sdir/$bkup.backup
+    print $now series $scur backup $bkup mode $mode begin >> $slog
+    print -l "begin $now" "target $PWD" "series $s" "backup $b" "mode $mode" >> $bkup.backup
     busy $sdir
 
     # Back up
     typeset hash offset size file
-    zubak-find $mode |
-    zubak-gather $upopts $mode 2> $sdir/$bkup.eum |
-    zubak-split $sdir/$bkup |
+    zubak-find |
+    zubak-gather $zgopts $mode 2> $bkup.eum |
+    zubak-split $bkup |
     while read hash offset size file; do
         (( n++ < maxjobs )) || { wait; n=0 }
         zubak-compress $file &
         print "@$offset *$size #$hash $file"
-    done >> $sdir/$bkup.backup
+    done >> $bkup.backup
     wait
 
     # Wrap up
     if [[ $mode != diff ]]; then
-        grep '^[-+]' < $sdir/$bkup.eum >> $sdir/$mode.eum
-        touch -d @$now $sdir/$mode.eum
-        [[ $mode != full ]] || cp $sdir/full.eum $sdir/incr.eum
+        grep '^[-+]' < $bkup.eum >> $mode.eum
+        touch -d @$now $mode.eum
+        [[ $mode != full ]] || cp full.eum incr.eum
     fi
-    print -l "end $(now)" >> $sdir/$bkup.backup
-    touch -d @$now $sdir/$bkup.backup
+    print -l "end $(now)" >> $bkup.backup
+    touch -d @$now $bkup.backup
     idle $sdir
-    zubak-archive $sdir/$bkup.*
+    zubak-archive $bkup.*
     print $(now) series $scur backup $bkup mode $mode end >> $slog
 }
 
