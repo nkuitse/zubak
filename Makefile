@@ -2,7 +2,7 @@ include config.mk
 
 PROG = bin/zubak
 MANPAGE = zubak.1
-HELPERS = bin/zubak-backup bin/zubak-compress bin/zubak-gather bin/zubak-next-backup-id bin/zubak-split
+HELPERS = bin/zubak-gather bin/zubak-compress bin/zubak-next-backup-id bin/zubak-split bin/zubak-archive
 
 default: zubak.1
 
