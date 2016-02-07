@@ -14,7 +14,6 @@ shift $(( OPTIND - 1 ))
 mode=$1
 
 if $dryrun; then
-    print "PWD     : $PWD" > /dev/tty
     if [[ $mode == full ]]; then
         eubar -m >&2
     else
