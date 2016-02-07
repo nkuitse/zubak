@@ -3,151 +3,61 @@
 # Copyright 2016 Paul Hoffman <nkuitse@nkuitse.com>
 # GNU General Public License, version 3 or greater (see COPYING)
 
-typeset tdir s now b bbase bref brefbase sdir dryrun=false
-typeset -a backupcmd
-
 main() {
-    typeset opt l p
-    while getopts :n opt; do
+
+    # Command-line options
+    typeset opt dryrun=false
+    typeset -a log
+    integer n=0 maxjobs=3
+    while getopts :nj: opt; do
         case $opt in
             (n) dryrun=true ;;
+            (j) maxjobs=$OPTARG ;;
             (*) usage ;;
         esac
     done
     shift $(( OPTIND - 1 ))
-    tdir=$1 s=$2 now=$3 b=$4 bref=$5 sdir=$1/series/$2
-    bbase=$sdir/$b
-    brefbase=$sdir/$bref
-    typeset MAXN=6
-    typeset hash offset size file
-    integer n=0
-    typeset -a log
-    log=(
-        "begin $now"
-        "target $tdir"
-        "series $s"
-        "backup $b"
-    )
-    [[ -z $bref ]] || log+=( "base $bref" )
-    mkbackupcmd
-    log+=( "command $backupcmd" )
-    if $dryrun; then
-        exec >&2
-        print 'Path:'
-        for p in $path; do
-            print -- "  $p"
-        done
-        print 'Backup parameters:'
-        for l in $log; do
-            print -- "  $l"
-        done
-        print -l '' Script:
-        cat <<EOS
-    $backupcmd 2> $bbase.eum |
-    zubak-split $bbase |
-    while read hash offset size file; do
-        (( n++ < MAXN )) || { wait; n=0 }
-        zubak-compress \$file &
-        print "@\$offset *\$size #\$hash \$file"
-    done >> $bbase.backup
-    wait
-    print -l "end \$(print -P '%D{%s}')" >> $bbase.backup
-    touch -d @$now $bbase.backup
-EOS
-        exit 0
-    fi
+
+    typeset s=$1 b=$2
+    typeset now=$(now) sdir=$PWD/series/$s bbase=$PWD/series/$s/$b
+
     mv $sdir/@idle $sdir/@busy  ||
     mv $sdir/@empty $sdir/@busy ||
     fatal "Can\'t set series $s to busy; may be in unknown state"
-    print -l $log >> $bbase.backup
-    $backupcmd 2> $bbase.eum |
+    print -l "begin $now" "target $PWD" "series $s" "backup $b" "command $backupcmd" >> $bbase.backup
+
+    # Guts of the backup process
+    typeset hash offset size file
+    zubak-gather 2> $bbase.eum |
     zubak-split $bbase |
     while read hash offset size file; do
-        (( n++ < MAXN )) || { wait; n=0 }
+        (( n++ < maxjobs )) || { wait; n=0 }
         zubak-compress $file &
         print "@$offset *$size #$hash $file"
     done >> $bbase.backup
     wait
-    grep '^[-+]' < $bbase.eum >> $sdir/meta
-    print -l "end $(print -P '%D{%s}')" >> $bbase.backup
+
+    # Wrap up
+    grep '^[-+]' < $bbase.eum >> $sdir/all.eum
+    print -l "end $(now)" >> $bbase.backup
     touch -d @$now $bbase.backup
+    touch -d @$now $sdir/all.eum
     mv $sdir/@busy $sdir/@idle ||
     fatal "Can\'t set series $s to idle"
+
+    exec zubak-archive $bbase.*
+
 }
 
-mkbackupcmd() {
-    typeset host
-    typeset -a sources prune cmdpfx findcmd findargs
-    conf host | read host
-    if [[ -z $host || $host == localhost ]]; then
-        # zubak-gather [-f | -i BASE] [-e COMMAND]
-        host=''
-    else
-        cmdpfx=( ssh $host )
-    fi
-    conf sources |
-    while read src; do
-        case "$src" in
-            (/*) findargs+=( "$src" ) ;;
-            (*)  fatal "Relative sources are not allowed: $src" ;;
-        esac
-    done
-    typeset x
-    conf exclude |
-    while read x; do
-        case "$x" in
-            (name:*)
-                findargs+=( -name "${x[6,-1]}" -prune -o ) ;;
-            (path:*)
-                findargs+=( -path "${x[6,-1]}" -prune -o ) ;;
-            (regex:*)
-                findargs+=( -regex "${x[7,-1]}" -prune -o ) ;;
-            (*)
-                findargs+=( -name "$x" -prune -o ) ;;
-        esac
-    done
-    backupcmd=( zubak-gather )
-    [[ -z $host ]] || backupcmd+=( -c )
-    if [[ -n $bref ]]; then
-        backupcmd+=( -i $brefbase )
-        if [[ -n $host ]]; then
-            integer m=$(minutes-since-backup $brefbase)
-            let m++
-            findargs+=( -cmin -$min )
-        else
-            findargs+=( -newer $brefbase.backup )
-        fi
-    fi
-    conf findcmd find | read -A findcmd
-    if (( $#findcmd == 0 )); then
-        findcmd=( find $findargs -print )
-    else
-        findcmd+=( $findargs )
-    fi
-}
-
-minutes-since-backup() {
-    typeset b=$1
-    integer age=$(perl -e '($f, $now) = @ARGV; @s = stat($f); print("0\n"), exit 2 if !@s; print int(($now-$s[9])/60)' $b.backup $now)
-    (( $? == 0 )) || fatal "Can't stat $b.backup"
+age-in-minutes() {
+    typeset f=$1
+    integer age=$(perl -e '($f, $now) = @ARGV; @s = stat($f); print("0\n"), exit 2 if !@s; print int(($now-$s[9])/60)' $f $now)
+    (( $? == 0 )) || fatal "Can't stat $f"
     print $age
 }
 
-trace() {
-    print "> $@" >> /tmp/zubak.$$.trace
-}
-
-conf() {
-    typeset k=$1 default=$2
-    trace conf k=$1 default=$2
-    trace -- -e $tdir/conf/$k
-    if [[ -e $tdir/conf/$k ]]; then
-        trace egrep -v '^[ \t]*(#.*)?$' $tdir/conf/$k
-        egrep -v '^[ \t]*(#.*)?$' $tdir/conf/$k
-    elif [[ -n $default ]]; then
-        trace print -- $default
-        print -- $default
-    fi
+now() {
+    print -P '%D{%s}'
 }
 
 fatal() {
