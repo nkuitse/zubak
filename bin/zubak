@@ -30,11 +30,31 @@ cmd_nt() {
     typeset t=$1; shift
     tdir=$(targdir $t)
     [[ ! -d $tdir ]] || fatal "Target already exists: $t"
-    mkdir -p $tdir/0/@empty
-    mkdir -p $tdir/series
-    ln -s 0 $(serdir $tdir current)
-    print $(now) target $t created >> $(targlog)
+    mkdir $tdir
+    cd $tdir
+
+    set -x
+    now=$(now)
+    typeset s=1
+    typeset sdir=$(serdir $tdir $s)
+    mkdir -p $sdir
+    ln -s $s $(serdir $tdir current)
+    set +x
+
     print $t >> $(targlist)
+    print $s >> $(serlist $tdir)
+
+    print $now target $t created >> $(targlog)
+    print $now series $s open >> $(serlog $tdir)
+
+    # Build a bare-bones find helper
+    mkdir -p $tdir/bin
+    print -l '#!/bin/sh' '' '# Customize this script to print a list of all files in the backup source' '' 'find /var/empty' 'exit -1' > $tdir/bin/zubak-find
+    chmod a+x $tdir/bin/zubak-find
+    touch $sdir/full.eum $sdir/incr.eum
+    ${EDITOR:-vim} $tdir/bin/zubak-find
+
+    mkdir -p $sdir/@idle
 }
 
 cmd_lt() {
@@ -73,7 +93,7 @@ cmd_ns() {
     typeset scurdir=$(serdir $tdir $scur)
     mkdir -p $snewdir
     mv $scurdir/@* $snewdir/@empty
-    typeset now=$(now)
+    now=$(now)
     {
         if (( scur == 0 )); then
             rmdir $scurdir
@@ -106,7 +126,8 @@ cmd_up() {
     shift $(( OPTIND - 1 ))
     (( $# == 1 )) || usage up
     typeset t=$1; shift
-    typeset tdir=$(targdir $t) now=$(now)
+    typeset tdir=$(targdir $t)
+    now=$(now)
     path=( $tdir/bin.$(uname) $tdir/bin $path )
     typeset scur=$( current-series $tdir            )
     typeset sdir=$( serdir $tdir $scur              )
