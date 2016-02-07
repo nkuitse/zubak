@@ -1,5 +1,8 @@
 #!/bin/zsh
 
+# usage:
+#   cd /var/local/backup/targets/TARGET/series/SERIES
+#   zubak-gather [-n] MODE
 typeset opt dryrun=false mode
 while getopts :n opt; do
     case $opt in
@@ -11,13 +14,14 @@ shift $(( OPTIND - 1 ))
 mode=$1
 
 if $dryrun; then
+    print "PWD     : $PWD" > /dev/tty
     if [[ $mode == full ]]; then
         eubar -m >&2
     else
-        eubdiff $mode
+        eubar -m | eubdiff $mode
     fi
 elif [[ $mode == full ]]; then
     eubar
 else
-    eubdiff $mode | eubar -s
+    eubar -m | eubdiff $mode | eubar -s
 fi
