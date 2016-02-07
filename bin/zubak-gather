@@ -1,39 +1,23 @@
 #!/bin/zsh
 
-main() {
-    typeset opt clientmode=false bref cmd=find tmp
-    while getopts :ci:e: opt; do
-        case $opt in
-            (c) clientmode=true ;;
-            (i) bref=$OPTARG ;;
-            (e) cmd=$OPTARG ;;
-        esac
-    done
-    shift $(( OPTIND - 1 ))
-    if $clientmode; then
-        # This script is being run on the client machine; output will go to the server
-        [[ -z $bref ]] || exit 2
-        if [[ -n $bref ]]; then
-            # ssh $thishost zubak-gather -c -i BASE [-e COMMAND] ARG... [< BASE.eum]
-            tmp=$(mktemp -d /tmp/zubak-gather.$$.XXXXXX)
-            cat > $tmp/all.eum || exit 2
-            $cmd $@ | eubdiff $tmp/all | eubar -s
-            if [[ -d /var/local/backup/local/ ]]; then
-                mv $tmp /var/local/backup/local/
-            else
-                rm -Rf $tmp
-            fi
-        else
-            # ssh $thishost zubak-gather -c -f [-e COMMAND] ARG...
-            $cmd $@ | eubar
-        fi
-    elif [[ -n $bref ]]; then
-        # zubak-gather -i BASE [-e COMMAND] ARG...
-        $cmd $@ | eubdiff $bref | eubar -s
-    else
-        # zubak-gather -f [-e COMMAND] ARG...
-        $cmd $@ | eubar
-    fi
-}
+typeset opt dryrun=false mode
+while getopts :n opt; do
+    case $opt in
+        (n) dryrun=true ;;
+        (*) usage ;;
+    esac
+done
+shift $(( OPTIND - 1 ))
+mode=$1
 
-main "$@"
+if $dryrun; then
+    if [[ $mode == full ]]; then
+        eubar -m >&2
+    else
+        eubdiff $mode
+    fi
+elif [[ $mode == full ]]; then
+    eubar
+else
+    eubdiff $mode | eubar -s
+fi
