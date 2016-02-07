@@ -91,7 +91,7 @@ cmd_ns() {
 
 cmd_up() {
     #@ up TARGET [-n] [-f|-i|-d] :: perform a backup
-    typeset opt dryrun=false mode=incr
+    typeset opt dryrun=false mode
     typeset -a zgopts
     while getopts :nfid opt; do
         case $opt in
