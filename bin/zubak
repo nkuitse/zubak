@@ -114,7 +114,13 @@ cmd_up() {
     typeset bkup=$( zubak-next-backup-id $now $tdir )
 
     cd $sdir
-    if [[ $mode == full && -s full.eum ]]; then
+    if [[ -z $mode ]]; then
+        if [[ -s full.eum ]]; then
+            mode=incr
+        else
+            mode=full
+        fi
+    elif [[ $mode == full && -s full.eum ]]; then
         fatal "There is already a full backup in series $scur of target $t"
     fi
 
