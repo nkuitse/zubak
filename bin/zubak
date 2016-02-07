@@ -17,7 +17,6 @@ path=( /usr/local/libexec/zubak $root/bin $path )
 
 main() {
     (( $# > 0 )) || set null
-    now=$(now)
     typeset cmd=$1; shift
     egrep -q "^cmd_$cmd()" $PROG || usage
     cmd_$cmd "$@"
@@ -35,7 +34,7 @@ cmd_nt() {
     mkdir -p $tdir/conf $tdir/series
     ln -s 0 $(serdir $tdir current)
     ${VISUAL:-${EDITOR:-vim}} $tdir/conf/sources
-    print $now target $t created >> $(targlog)
+    print $(now) target $t created >> $(targlog)
     print $t >> $(targlist)
 }
 
@@ -75,6 +74,7 @@ cmd_ns() {
     typeset scurdir=$(serdir $tdir $scur)
     mkdir -p $snewdir
     mv $scurdir/@* $snewdir/@empty
+    typeset now=$(now)
     {
         if (( scur == 0 )); then
             rmdir $scurdir
@@ -88,34 +88,73 @@ cmd_ns() {
     rm -f $symlink
     ln -s $snew $symlink
     cp -r $tdir/conf $scurdir/
+    touch $scurdir/full.eum $scurdir/incr.eum
 }
 
 cmd_up() {
-    #@ up TARGET :: perform a backup
-    typeset opt dryrun=false
+    #@ up TARGET [-n] [-f|-i|-d] :: perform a backup
+    typeset opt dryrun=false mode=incr
     typeset -a upopts
-    while getopts :n opt; do
+    while getopts :nfid opt; do
         case $opt in
             (n) dryrun=true
                 upopts+=( -n );;
+            (f) mode=full ;;
+            (i) mode=incr ;;
+            (d) mode=diff ;;
             (*) usage up ;;
         esac
     done
     shift $(( OPTIND - 1 ))
     (( $# == 1 )) || usage up
     typeset t=$1; shift
-    typeset tdir=$(targdir $t)
-    cd $tdir
+    typeset tdir=$(targdir $t) now=$(now)
     path=( $tdir/bin.$(uname) $tdir/bin $path )
-    typeset s=$(current-series $tdir)
-    typeset sdir=$(serdir $tdir $s)
-    typeset bref=$(latest-backup-in-series $sdir)
-    typeset b=$(zubak-next-backup-id $now $tdir)
-    typeset slog=$(serlog $tdir)
-    $dryrun || print $now series $s backup $b begin >> $slog
-    export ZTARGET=$t ZSERIES=$s ZBACKUP=$b ZREFERENCE=$bref
-    zubak-backup $upopts $tdir $s $now $b $bref
-    $dryrun || print $(now) series $s backup $b end >> $slog
+    typeset scur=$( current-series $tdir            )
+    typeset sdir=$( serdir $tdir $scur              )
+    typeset slog=$( serlog $tdir                    )
+    typeset bkup=$( zubak-next-backup-id $now $tdir )
+
+    cd $sdir
+    if [[ $mode == full && -s full.eum ]]; then
+        fatal "There is already a full backup in series $scur of target $t"
+    fi
+
+    if $dryrun; then
+        print "DRY RUN : $now series $scur backup $bkup mode $mode begin" >&2
+        print "DRY RUN :" =zubak-find $mode "|" =zubak-gather "$upopts $mode" >&2
+        zubak-find $mode | zubak-gather $upopts $mode > /dev/null 2> >(sed 's/^/        > /' >&2)
+        print "DRY RUN : $(now) series $scur backup $bkup mode $mode end" >&2
+        exit 0
+    fi
+
+    # Start
+    print -l "begin $now" "target $PWD" "series $s" "backup $b" "mode $mode" >> $sdir/$bkup.backup
+    busy $sdir
+
+    # Back up
+    typeset hash offset size file
+    zubak-find $mode |
+    zubak-gather $upopts $mode 2> $sdir/$bkup.eum |
+    zubak-split $sdir/$bkup |
+    while read hash offset size file; do
+        (( n++ < maxjobs )) || { wait; n=0 }
+        zubak-compress $file &
+        print "@$offset *$size #$hash $file"
+    done >> $sdir/$bkup.backup
+    wait
+
+    # Wrap up
+    if [[ $mode != diff ]]; then
+        grep '^[-+]' < $sdir/$bkup.eum >> $sdir/$mode.eum
+        touch -d @$now $sdir/$mode.eum
+        [[ $mode != full ]] || cp $sdir/full.eum $sdir/incr.eum
+    fi
+    print -l "end $(now)" >> $sdir/$bkup.backup
+    touch -d @$now $sdir/$bkup.backup
+    idle $sdir
+    zubak-archive $sdir/$bkup.*
+    print $(now) series $scur backup $bkup mode $mode end >> $slog
 }
 
 cmd_version() {
@@ -144,6 +183,19 @@ cmd_null() {
 }
 
 # --- Utility functions
+
+busy() {
+    typeset sdir=$1
+    mv $sdir/@idle $sdir/@busy  ||
+    mv $sdir/@empty $sdir/@busy ||
+    fatal "Can\'t set series $sdir:t to busy; may be in unknown state"
+}
+
+idle() {
+    typeset sdir=$1
+    mv $sdir/@busy $sdir/@idle ||
+    fatal "Can\'t set series $sdir:t to idle"
+}
 
 targlist() {
     print $root/targets.list
@@ -193,6 +245,13 @@ current-series() {
 
 now() {
     print -P '%D{%s}'
+}
+
+age-in-minutes() {
+    typeset f=$1
+    integer age=$(perl -e '($f, $now) = @ARGV; @s = stat($f); print("0\n"), exit 2 if !@s; print int(($now-$s[9])/60)' $f $now)
+    (( $? == 0 )) || fatal "Can't stat $f"
+    print $age
 }
 
 usage() {
