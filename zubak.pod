@@ -10,11 +10,32 @@ zubak - simple backups using zsh
 
     # zubak nt TARGET
     # zubak ns TARGET
-    # zubak up TARGET
+    # zubak up [-n] TARGET
 
 =head1 DESCRIPTION
 
-...
+=head1 COMMANDS
+
+=over 4
+
+=item B<up> [B<-n>] [B<-f>|B<-d>|B<-i>] I<TARGET>
+
+Back up to I<TARGET>.
+
+Option B<-n> does a `dry run' that does not back up anything.
+
+There are three modes: full (option B<-f>), incremental (option B<-i>), and
+differential (option B<-d>).
+
+If the mode option is omitted, B<zubak> will determine the mode by looking at
+the current series.  To perform a differential backup, you must specify option
+B<-d>.
+
+In any case -- whether you specify a mode option or not -- a full backup may
+only be made to an empty series and an incremental or differential backup may
+only be made to a non-empty series.
+
+=back
 
 =head1 DIAGNOSTICS
 
