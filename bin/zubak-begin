@@ -1,2 +1,6 @@
-#!/bin/sh
-:
+#!/bin/zsh
+
+if [[ $1 == -n ]]; then
+    shift;
+    print "*** Begin backup $1 dry run ***" >&2
+fi
