@@ -24,6 +24,9 @@ dist: $(NAME)-$(VERSION).tar.gz
 
 $(NAME)-$(VERSION).tar.gz: $(NAME)-$(VERSION)
 	tar -czf $@ $<
+	rm -Rf $<
+
+manifest: MANIFEST
 
 MANIFEST: MANIFEST.SKIP
 	find * | egrep -v -f $< > $@
@@ -33,6 +36,6 @@ $(NAME)-$(VERSION): MANIFEST
 	cpio -p -m $@ < $<
 
 clean:
-	rm -Rf $(NAME)-$(VERSION)*
+	rm -Rf $(NAME)-$(VERSION)* MANIFEST
 
-.PHONY: default install install-man dist clean
+.PHONY: default install install-man dist clean manifest
