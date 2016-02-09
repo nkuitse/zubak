@@ -5,7 +5,7 @@
 
 typeset PROG=$0
 typeset NAME=$0:t
-typeset VERSION=0.02
+typeset VERSION=0.03
 typeset YEARS=2016
 typeset AUTHOR='Paul Hoffman'
 typeset EMAIL=nkuitse@nkuitse.com
