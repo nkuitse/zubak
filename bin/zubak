@@ -146,7 +146,9 @@ cmd_up() {
     if $dryrun; then
         print "DRY RUN : $now series $scur backup $bkup mode $mode begin"
         print "DRY RUN :" =zubak-find "|" =zubak-gather "$zgopts $mode"
+        zubak-begin -n $bkup
         zubak-find | zubak-gather $zgopts $mode > /dev/null 2> >(sed 's/^/        > /')
+        zubak-end -n $bkup
         print "DRY RUN : $(now) series $scur backup $bkup mode $mode end"
         exit 0
     fi >&2
