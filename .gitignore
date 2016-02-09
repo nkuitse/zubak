@@ -3,3 +3,5 @@
 example
 old
 zubak.1
+zubak-[0-9]*
+MANIFEST
