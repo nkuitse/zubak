@@ -30,16 +30,14 @@ cmd_nt() {
     typeset t=$1; shift
     tdir=$(targdir $t)
     [[ ! -d $tdir ]] || fatal "Target already exists: $t"
-    mkdir $tdir
+    mkdir -p $tdir
     cd $tdir
 
-    set -x
     now=$(now)
     typeset s=1
     typeset sdir=$(serdir $tdir $s)
-    mkdir -p $sdir
+    mkdir -p $sdir/@idle
     ln -s $s $(serdir $tdir current)
-    set +x
 
     print $t >> $(targlist)
     print $s >> $(serlist $tdir)
@@ -160,6 +158,7 @@ cmd_up() {
 
     # Back up
     typeset hash offset size file
+    zubak-begin $bkup
     zubak-find |
     zubak-gather $zgopts $mode 2> $bkup.eum |
     zubak-split $bkup |
@@ -169,6 +168,7 @@ cmd_up() {
         print "@$offset *$size #$hash $file"
     done >> $bkup.backup
     wait
+    zubak-end $bkup
 
     # Wrap up
     if [[ $mode != diff ]]; then
