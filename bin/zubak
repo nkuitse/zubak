@@ -13,7 +13,7 @@ typeset EMAIL=nkuitse@nkuitse.com
 typeset root=${ZUBAK_ROOT:=/var/local/backup}
 typeset now
 
-path=( /usr/local/libexec/zubak $root/bin $path )
+path=( $root/bin /usr/local/libexec/zubak $path )
 
 main() {
     (( $# > 0 )) || set null
@@ -183,7 +183,7 @@ cmd_up() {
     print -l "end $(now)" >> $bkup.backup
     touch -d @$now $bkup.backup
     idle $sdir
-    zubak-archive $bkup.*
+    zubak-archive $bkup $scur $t
     print $(now) series $scur backup $bkup mode $mode end >> $slog
 }
 
