@@ -285,9 +285,7 @@ age-in-minutes() {
 
 usage() {
     if (( $# == 1 )); then
-        perl -ne "
-            printf qq{usage: %s %s\n}, qq{$NAME}, \$1 if /#@ (${1[5,-1]} .+) :: (.+)/
-        " $PROG
+        grep -A1 "^cmd_$1[(]" $PROG | perl -ne "printf qq{usage: %s %s\n}, qq{$NAME}, \$1 if /#\@ (.+) :: (.+)/"
     else
         print "usage: $NAME COMMAND [ARG...]" >&2
         print "       $NAME help" >&2
