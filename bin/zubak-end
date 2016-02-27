@@ -1,6 +1,4 @@
 #!/bin/zsh
 
-if [[ $1 == -n ]]; then
-    shift;
-    print "*** End backup $1 dry run ***" >&2
-fi
+typeset b=$1 s=$2 t=$3
+print "Backup $b of target $t (series $s) is now complete" >&2

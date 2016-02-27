@@ -172,7 +172,6 @@ cmd_up() {
         print "@$offset *$size #$hash $file"
     done >> $bkup.backup
     wait
-    zubak-end $bkup
 
     # Wrap up
     if [[ $mode != diff ]]; then
@@ -180,10 +179,10 @@ cmd_up() {
         touch -d @$now $mode.eum
         [[ $mode != full ]] || cp full.eum incr.eum
     fi
+    zubak-end $bkup $scur $t
     print -l "end $(now)" >> $bkup.backup
     touch -d @$now $bkup.backup
     idle $sdir
-    zubak-archive $bkup $scur $t
     print $(now) series $scur backup $bkup mode $mode end >> $slog
 }
 
