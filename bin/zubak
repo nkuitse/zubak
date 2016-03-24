@@ -149,7 +149,7 @@ cmd_up() {
         busy $sdir
         zubak-begin -n $bkup
         zubak-find | zubak-gather $zgopts $mode > /dev/null 2> >(sed 's/^/        > /')
-        zubak-end -n $bkup
+        zubak-end -n $bkup $scur $t
         idle $sdir
         print "DRY RUN : $(now) series $scur backup $bkup mode $mode end"
         exit 0
