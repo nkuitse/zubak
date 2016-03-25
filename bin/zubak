@@ -54,16 +54,22 @@ cmd_nt() {
     print $now series $s open >> $(serlog $tdir)
 
     # Build a bare-bones find helper
-    mkdir -p $tdir/bin
     if [[ -n $p ]]; then
         typeset pdir=$(targdir $p)
-        if [[ -e $pdir/bin/zubak-find ]]; then
-            cp $pdir/bin/zubak-find $tdir/bin/
+        if [[ -e $pdir/bin ]]; then
+            cp -r $pdir/bin $tdir/
         else
-            touch $tdir/bin/zubak-find
+            mkdir -p $tdir/bin
         fi
+        touch $tdir/bin/zubak-find
     else
-        print -l '#!/bin/sh' '' '# Customize this script to print a list of all files in the backup source' '' 'find /var/empty' 'exit -1' > $tdir/bin/zubak-find
+        mkdir -p $tdir/bin
+        cat > $tdir/bin/zubak-find <<EOS
+#!/bin/zsh
+# Customize this script to print a list of all files in the backup source
+find /var/empty
+exit -1
+EOS
     fi
     chmod a+x $tdir/bin/zubak-find
     touch $sdir/full.eum $sdir/incr.eum
