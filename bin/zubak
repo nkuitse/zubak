@@ -26,9 +26,17 @@ main() {
 
 cmd_nt() {
     #@ nt TARGET :: create a new target
+    typeset opt p
+    while getopts :p: opt; do
+        case $opt in
+            (p) p=$OPTARG ;;
+            (*) usage ;;
+        esac
+    done
+    shift $(( OPTIND - 1 ))
     (( $# == 1 )) || usage nt
     typeset t=$1; shift
-    tdir=$(targdir $t)
+    typeset tdir=$(targdir $t)
     [[ ! -d $tdir ]] || fatal "Target already exists: $t"
     mkdir -p $tdir
     cd $tdir
@@ -36,7 +44,6 @@ cmd_nt() {
     now=$(now)
     typeset s=1
     typeset sdir=$(serdir $tdir $s)
-    mkdir -p $sdir/@idle
     ln -s $s $(serdir $tdir current)
 
     print $t >> $(targlist)
@@ -47,7 +54,16 @@ cmd_nt() {
 
     # Build a bare-bones find helper
     mkdir -p $tdir/bin
-    print -l '#!/bin/sh' '' '# Customize this script to print a list of all files in the backup source' '' 'find /var/empty' 'exit -1' > $tdir/bin/zubak-find
+    if [[ -n $p ]]; then
+        typeset pdir=$(targdir $p)
+        if [[ -e $pdir/bin/zubak-find ]]; then
+            cp $pdir/bin/zubak-find $tdir/bin/
+        else
+            touch $tdir/bin/zubak-find
+        fi
+    else
+        print -l '#!/bin/sh' '' '# Customize this script to print a list of all files in the backup source' '' 'find /var/empty' 'exit -1' > $tdir/bin/zubak-find
+    fi
     chmod a+x $tdir/bin/zubak-find
     touch $sdir/full.eum $sdir/incr.eum
     ${EDITOR:-vim} $tdir/bin/zubak-find
