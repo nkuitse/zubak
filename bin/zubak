@@ -157,7 +157,7 @@ cmd_up() {
 
     # Start
     print $now series $scur backup $bkup mode $mode begin >> $slog
-    print -l "begin $now" "target $PWD" "series $s" "backup $b" "mode $mode" >> $bkup.backup
+    print -l "begin $now" "target $PWD" "series $scur" "backup $bkup" "mode $mode" >> $bkup.backup
     busy $sdir
 
     # Back up
