@@ -44,6 +44,7 @@ cmd_nt() {
     now=$(now)
     typeset s=1
     typeset sdir=$(serdir $tdir $s)
+    mkdir -p $sdir
     ln -s $s $(serdir $tdir current)
 
     print $t >> $(targlist)
