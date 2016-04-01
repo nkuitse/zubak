@@ -131,13 +131,15 @@ cmd_ns() {
 }
 
 cmd_up() {
-    #@ up TARGET [-n] [-f|-i|-d] :: perform a backup
+    #@ up TARGET [-nl] [-f|-i|-d] :: perform a backup
     typeset opt dryrun=false mode
-    typeset -a zgopts
-    while getopts :nfid opt; do
+    typeset -a zgopts logger
+    logger=( : )
+    while getopts :nlfid opt; do
         case $opt in
             (n) dryrun=true
                 zgopts+=( -n );;
+            (l) logger=( logger -s -i -t zubak ) ;;
             (f) mode=full ;;
             (i) mode=incr ;;
             (d) mode=diff ;;
@@ -185,16 +187,25 @@ cmd_up() {
 
     # Back up
     typeset hash offset size file
+    set -e
+    $logger "begin backup $bkup of target $t series $scur"
     zubak-begin $bkup
     zubak-find |
     zubak-gather $zgopts $mode 2> $bkup.eum |
     zubak-split $bkup |
     while read hash offset size file; do
-        (( n++ < maxjobs )) || { wait; n=0 }
+        $logger "compress $file"
+        if (( ++n > maxjobs )); then
+            $logger "wait for compress job slot"
+            wait || fatal "Compression failed"
+            n=0
+        fi
         zubak-compress $file &
         print "@$offset *$size #$hash $file"
     done >> $bkup.backup
-    wait
+    $logger "wait for compress jobs to complete"
+    wait || fatal "Compression failed"
+    set +e
 
     # Wrap up
     if [[ $mode != diff ]]; then
@@ -207,6 +218,7 @@ cmd_up() {
     touch -d @$now $bkup.backup
     idle $sdir
     print $(now) series $scur backup $bkup mode $mode end >> $slog
+    $logger "end backup $bkup of target $t series $scur"
 }
 
 cmd_version() {
