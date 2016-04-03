@@ -131,11 +131,12 @@ cmd_ns() {
 }
 
 cmd_up() {
-    #@ up TARGET [-nl] [-f|-i|-d] :: perform a backup
+    #@ up [-nlfid] [-j NUM] TARGET :: perform a backup
     typeset opt dryrun=false mode
     typeset -a zgopts logger
+    integer maxjobs=3
     logger=( : )
-    while getopts :nlfid opt; do
+    while getopts :nlfidj: opt; do
         case $opt in
             (n) dryrun=true
                 zgopts+=( -n );;
@@ -143,6 +144,8 @@ cmd_up() {
             (f) mode=full ;;
             (i) mode=incr ;;
             (d) mode=diff ;;
+            (j) [[ $OPTARG == [1-9]* ]] || usage up
+                maxjobs=$OPTARG ;;
             (*) usage up ;;
         esac
     done
