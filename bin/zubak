@@ -53,27 +53,19 @@ cmd_nt() {
     print $now target $t created >> $(targlog)
     print $now series $s open >> $(serlog $tdir)
 
-    # Build a bare-bones find helper
-    if [[ -n $p ]]; then
-        typeset pdir=$(targdir $p)
-        if [[ -e $pdir/bin ]]; then
-            cp -r $pdir/bin $tdir/
-        else
-            mkdir -p $tdir/bin
-        fi
-        touch $tdir/bin/zubak-find
-    else
-        mkdir -p $tdir/bin
-        cat > $tdir/bin/zubak-find <<EOS
-#!/bin/zsh
-# Customize this script to print a list of all files in the backup source
-find /var/empty
-exit -1
-EOS
-    fi
-    chmod a+x $tdir/bin/zubak-find
     touch $sdir/full.eum $sdir/incr.eum
-    ${EDITOR:-vim} $tdir/bin/zubak-find
+
+    mkdir -p $tdir/conf
+    typeset client=${t%%/*}
+    [[ $client == localhost || $client:l == $(hostname -s | tr A-Z a-z) ]] || print $client > $tdir/conf/client
+    print /var/empty > $tdir/conf/sources
+    cat > $tdir/conf/exclude <<EOS
+.DS_Store
+.Trash
+._*
+tmp
+.cache
+EOS
 
     mkdir -p $sdir/@idle
 }
