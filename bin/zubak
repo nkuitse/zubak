@@ -149,7 +149,7 @@ cmd_up() {
     path=( $tdir/bin.$(uname) $tdir/bin $path )
 
     if ! zubak-ready $t; then
-        print "Target $t is not ready to be backed up" >&2
+        print "skip $t" >&2
         exit 0
     fi
 
