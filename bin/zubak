@@ -105,7 +105,7 @@ cmd_ns() {
     typeset snewdir=$(serdir $tdir $snew)
     typeset scurdir=$(serdir $tdir $scur)
     mkdir -p $snewdir
-    mv $scurdir/@* $snewdir/@empty
+    mv $scurdir/@* $snewdir/@idle
     now=$(now)
     {
         if (( scur == 0 )); then
@@ -253,7 +253,6 @@ cmd_null() {
 busy() {
     typeset sdir=$1
     mv $sdir/@idle $sdir/@busy  ||
-    mv $sdir/@empty $sdir/@busy ||
     fatal "Can\'t set series $sdir:t to busy; may be in unknown state"
 }
 
