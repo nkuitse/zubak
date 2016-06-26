@@ -220,6 +220,7 @@ cmd_up() {
     idle $sdir
     print $(now) series $scur backup $bkup mode $mode end >> $slog
     $logger "end backup $bkup of target $t series $scur"
+    print "done $t" >&2
 }
 
 cmd_version() {
