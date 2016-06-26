@@ -126,7 +126,6 @@ cmd_up() {
     #@ up [-nlfid] [-j NUM] TARGET :: perform a backup
     typeset opt dryrun=false mode
     typeset -a zgopts logger
-    integer maxjobs=3
     logger=( : )
     while getopts :nlfidj: opt; do
         case $opt in
@@ -136,8 +135,6 @@ cmd_up() {
             (f) mode=full ;;
             (i) mode=incr ;;
             (d) mode=diff ;;
-            (j) [[ $OPTARG == [1-9]* ]] || usage up
-                maxjobs=$OPTARG ;;
             (*) usage up ;;
         esac
     done
@@ -196,12 +193,7 @@ cmd_up() {
     zubak-split $bkup |
     while read hash offset size file; do
         $logger "compress $file"
-        if (( ++n > maxjobs )); then
-            $logger "wait for compress job slot"
-            wait || fatal "Compression failed"
-            n=0
-        fi
-        zubak-compress $file &
+        zubak-compress $file
         print "@$offset *$size #$hash $file"
     done >> $bkup.backup
     $logger "wait for compress jobs to complete"
