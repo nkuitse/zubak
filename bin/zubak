@@ -281,7 +281,7 @@ serdir() {
 backups-in-series() {
     typeset sdir=$1
     typeset -a backups
-    backups=( $sdir/*.backup(.NOm) )
+    backups=( $~sdir/*.backup(.NOm) )
     (( $#backups == 0 )) || print -l $backups:t:r
 }
 
