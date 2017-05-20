@@ -5,7 +5,7 @@
 
 typeset PROG=$0
 typeset NAME=$0:t
-typeset VERSION=0.03
+typeset VERSION=0.04
 typeset YEARS=2016
 typeset AUTHOR='Paul Hoffman'
 typeset EMAIL=nkuitse@nkuitse.com
@@ -26,9 +26,17 @@ main() {
 
 cmd_nt() {
     #@ nt TARGET :: create a new target
+    typeset opt p
+    while getopts :p: opt; do
+        case $opt in
+            (p) p=$OPTARG ;;
+            (*) usage ;;
+        esac
+    done
+    shift $(( OPTIND - 1 ))
     (( $# == 1 )) || usage nt
     typeset t=$1; shift
-    tdir=$(targdir $t)
+    typeset tdir=$(targdir $t)
     [[ ! -d $tdir ]] || fatal "Target already exists: $t"
     mkdir -p $tdir
     cd $tdir
@@ -36,7 +44,7 @@ cmd_nt() {
     now=$(now)
     typeset s=1
     typeset sdir=$(serdir $tdir $s)
-    mkdir -p $sdir/@idle
+    mkdir -p $sdir
     ln -s $s $(serdir $tdir current)
 
     print $t >> $(targlist)
@@ -45,12 +53,19 @@ cmd_nt() {
     print $now target $t created >> $(targlog)
     print $now series $s open >> $(serlog $tdir)
 
-    # Build a bare-bones find helper
-    mkdir -p $tdir/bin
-    print -l '#!/bin/sh' '' '# Customize this script to print a list of all files in the backup source' '' 'find /var/empty' 'exit -1' > $tdir/bin/zubak-find
-    chmod a+x $tdir/bin/zubak-find
     touch $sdir/full.eum $sdir/incr.eum
-    ${EDITOR:-vim} $tdir/bin/zubak-find
+
+    mkdir -p $tdir/conf
+    typeset client=${t%%/*}
+    [[ $client == localhost || $client:l == $(hostname -s | tr A-Z a-z) ]] || print $client > $tdir/conf/client
+    print /var/empty > $tdir/conf/sources
+    cat > $tdir/conf/exclude <<EOS
+.DS_Store
+.Trash
+._*
+tmp
+.cache
+EOS
 
     mkdir -p $sdir/@idle
 }
@@ -90,7 +105,7 @@ cmd_ns() {
     typeset snewdir=$(serdir $tdir $snew)
     typeset scurdir=$(serdir $tdir $scur)
     mkdir -p $snewdir
-    mv $scurdir/@* $snewdir/@empty
+    mv $scurdir/@* $snewdir/@idle
     now=$(now)
     {
         if (( scur == 0 )); then
@@ -112,11 +127,13 @@ cmd_up() {
     setopt localoptions localtraps
     typeset opt dryrun=false mode
     typeset result=err msg='backup failed'
-    typeset -a zgopts
-    while getopts :nfid opt; do
+    typeset -a zgopts logger
+    logger=( : )
+    while getopts :nlfid opt; do
         case $opt in
             (n) dryrun=true
                 zgopts+=( -n );;
+            (l) logger=( logger -s -i -t zubak ) ;;
             (f) mode=full ;;
             (i) mode=incr ;;
             (d) mode=diff ;;
@@ -129,6 +146,12 @@ cmd_up() {
     typeset tdir=$(targdir $t)
     now=$(now)
     path=( $tdir/bin.$(uname) $tdir/bin $path )
+
+    if ! zubak-ready $t; then
+        print "skip $t" >&2
+        exit 0
+    fi
+
     typeset scur=$( current-series $tdir            )
     typeset sdir=$( serdir $tdir $scur              )
     typeset slog=$( serlog $tdir                    )
@@ -153,7 +176,7 @@ cmd_up() {
         busy $sdir
         zubak-begin -n $bkup
         zubak-find | zubak-gather $zgopts $mode > /dev/null 2> >(sed 's/^/        > /')
-        zubak-end -n $bkup
+        zubak-end -n $bkup $scur $t
         idle $sdir
         print "DRY RUN : $(now) series $scur backup $bkup mode $mode end"
         exit 0
@@ -161,21 +184,25 @@ cmd_up() {
 
     # Start
     print $now series $scur backup $bkup mode $mode begin >> $slog
-    print -l "begin $now" "target $PWD" "series $s" "backup $b" "mode $mode" >> $bkup.backup
+    print -l "begin $now" "target $PWD" "series $scur" "backup $bkup" "mode $mode" >> $bkup.backup
     busy $sdir
 
     # Back up
     typeset hash offset size file
+    set -e
+    $logger "begin backup $bkup of target $t series $scur"
     zubak-begin $bkup
     zubak-find |
     zubak-gather $zgopts $mode 2> $bkup.eum |
     zubak-split $bkup |
     while read hash offset size file; do
-        (( n++ < maxjobs )) || { wait; n=0 }
-        zubak-compress $file &
+        $logger "compress $file"
+        zubak-compress $file
         print "@$offset *$size #$hash $file"
     done >> $bkup.backup
-    wait
+    $logger "wait for compress jobs to complete"
+    wait || fatal "Compression failed"
+    set +e
 
     # Wrap up
     if [[ $mode != diff ]]; then
@@ -188,6 +215,7 @@ cmd_up() {
     touch -d @$now $bkup.backup
     idle $sdir
     print $(now) series $scur backup $bkup mode $mode end >> $slog
+    $logger "end backup $bkup of target $t series $scur"
     print $t $scur $mode $bkup
 
     trap "print ok $t $scur $bkup :: backup complete >&2" EXIT
@@ -237,7 +265,6 @@ cmd_null() {
 busy() {
     typeset sdir=$1
     mv $sdir/@idle $sdir/@busy  ||
-    mv $sdir/@empty $sdir/@busy ||
     fatal "Can\'t set series $sdir:t to busy; may be in unknown state"
 }
 
@@ -274,7 +301,7 @@ serdir() {
 backups-in-series() {
     typeset sdir=$1
     typeset -a backups
-    backups=( $sdir/*.backup(.NOm) )
+    backups=( $~sdir/*.backup(.NOm) )
     (( $#backups == 0 )) || print -l $backups:t:r
 }
 
