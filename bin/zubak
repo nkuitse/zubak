@@ -109,7 +109,9 @@ cmd_ns() {
 
 cmd_up() {
     #@ up TARGET [-n] [-f|-i|-d] :: perform a backup
+    setopt localoptions localtraps
     typeset opt dryrun=false mode
+    typeset result=err msg='backup failed'
     typeset -a zgopts
     while getopts :nfid opt; do
         case $opt in
@@ -131,6 +133,8 @@ cmd_up() {
     typeset sdir=$( serdir $tdir $scur              )
     typeset slog=$( serlog $tdir                    )
     typeset bkup=$( zubak-next-backup-id $now $tdir )
+
+    trap "print err $t $scur $bkup :: backup failed >&2" EXIT
 
     cd $sdir
     if [[ -z $mode ]]; then
@@ -184,6 +188,23 @@ cmd_up() {
     touch -d @$now $bkup.backup
     idle $sdir
     print $(now) series $scur backup $bkup mode $mode end >> $slog
+    print $t $scur $mode $bkup
+
+    trap "print ok $t $scur $bkup :: backup complete >&2" EXIT
+}
+
+cmd_size() {
+    (( $# )) || usage
+    typeset t=$1 s=${2:-'*'} b=${3:-'*'} glob size total
+    tdir=$(targdir $t)
+    glob="$tdir/series/$s/$b.[0-9]*"
+    set -- $~glob(N)
+    if (( $# )); then
+        du -hc "$@" | tail -n1 | read size total
+        print $size
+    else
+        print 0
+    fi
 }
 
 cmd_version() {
