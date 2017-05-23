@@ -235,6 +235,10 @@ cmd_size() {
     fi
 }
 
+cmd_site() {
+    [[ ! -s $root/conf/site ]] || cat $root/conf/site
+}
+
 cmd_version() {
     #@ version [-v] :: print zubak version (-v and copyright information)
     if [[ $1 == -v ]]; then
