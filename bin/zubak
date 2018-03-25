@@ -239,6 +239,14 @@ cmd_site() {
     [[ ! -s $root/conf/site ]] || cat $root/conf/site
 }
 
+cmd_ready() {
+    #@ ready TARGET :: check to see if target is ready to back up
+    typeset t=$1; shift
+    typeset tdir=$(targdir $t)
+    path=( $tdir/bin.$(uname) $tdir/bin $path )
+    zubak-ready $t
+}
+
 cmd_version() {
     #@ version [-v] :: print zubak version (-v and copyright information)
     if [[ $1 == -v ]]; then
