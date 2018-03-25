@@ -247,6 +247,41 @@ cmd_ready() {
     zubak-ready $t
 }
 
+cmd_info() {
+    #@ info TARGET SERIES BACKUP :: print backup details
+    (( $# == 3 )) || usage info
+    typeset t=$1 s=$2 b=$3
+    typeset tdir=$(targdir $t)
+    typeset sdir=$(serdir $tdir $s)
+    [[ -d $tdir ]] || fatal "no such target: $t"
+    [[ -d $sdir ]] || fatal "no such series: $s"
+    [[ -e $sdir/$b.backup ]] || fatal "no such backup: $b"
+    integer nfiles=0 nsegments=0 ncompressed=0
+    cd $sdir
+    set -- @*(N)
+    typeset bstat
+    if (( $# == 0 )); then
+        bstat=unknown
+    elif (( $# > 1 )); then
+        bstat=multiple
+    else
+        bstat=${1[2,-1]}
+    fi
+    wc -l < $b.eum | read nfiles
+    set -- *.[0-9]*(.N)
+    nsegments=$#
+    set -- *.[0-9]*.gz(.N)
+    ncompressed=$#
+    cat <<EOS
+target $t
+series $s
+backup $b
+status $bstat
+files  $nfiles
+segs   $nsegments ($ncompressed compressed)
+EOS
+}
+
 cmd_version() {
     #@ version [-v] :: print zubak version (-v and copyright information)
     if [[ $1 == -v ]]; then
