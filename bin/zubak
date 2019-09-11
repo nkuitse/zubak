@@ -256,22 +256,25 @@ cmd_info() {
     [[ -d $tdir ]] || fatal "no such target: $t"
     [[ -d $sdir ]] || fatal "no such series: $s"
     [[ -e $sdir/$b.backup ]] || fatal "no such backup: $b"
-    integer nfiles=0 nsegments=0 ncompressed=0
-    cd $sdir
-    set -- @*(N)
+    integer nfiles=0 nsegments=0 ncompressed=0 began ended
     typeset bstat
-    if (( $# == 0 )); then
-        bstat=unknown
-    elif (( $# > 1 )); then
-        bstat=multiple
-    else
-        bstat=${1[2,-1]}
-    fi
+    cd $sdir
     wc -l < $b.eum | read nfiles
     set -- *.[0-9]*(.N)
     nsegments=$#
     set -- *.[0-9]*.gz(.N)
     ncompressed=$#
+    awk 'BEGIN {b = e = 0} /^begin / {b = $2} /^end / {e = $2} END {print b " " e}' $b.backup | read began ended
+    set -- @*(N)
+    if (( $# > 1 )); then
+        bstat=multiple
+    elif (( $# == 1 )); then
+        bstat=${1[2,-1]}
+    elif (( ended == 0 )); then
+        bstat=unknown
+    else
+        bstat=done
+    fi
     cat <<EOS
 target $t
 series $s
@@ -279,7 +282,15 @@ backup $b
 status $bstat
 files  $nfiles
 segs   $nsegments ($ncompressed compressed)
+began  $(date -d @$began)
 EOS
+    if (( ended )); then
+        typeset elapsed="$(sec2dur $(( ended - began )))"
+        cat <<EOS
+ended  $(date -d @$ended)
+time   $elapsed
+EOS
+    fi
 }
 
 cmd_version() {
