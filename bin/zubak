@@ -257,13 +257,14 @@ cmd_info() {
     [[ -d $sdir ]] || fatal "no such series: $s"
     [[ -e $sdir/$b.backup ]] || fatal "no such backup: $b"
     integer nfiles=0 nsegments=0 ncompressed=0 began ended
-    typeset bstat
+    typeset bstat size
     cd $sdir
     wc -l < $b.eum | read nfiles
     set -- $b.[0-9]*(.N)
     nsegments=$#
     set -- $b.[0-9]*.gz(.N)
     ncompressed=$#
+    size=$(wc -c $b.*(.N) | awk '/ total$/ {print $1}' | num2hum)
     awk 'BEGIN {b = e = 0} /^begin / {b = $2} /^end / {e = $2} END {print b " " e}' $b.backup | read began ended
     if (( ended == 0 )); then
         set -- @*(N)
@@ -282,6 +283,7 @@ target $t
 series $s
 backup $b
 status $bstat
+size   $size
 files  $nfiles
 segs   $nsegments ($ncompressed compressed)
 began  $(date -d @$began)
