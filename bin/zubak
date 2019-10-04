@@ -5,8 +5,8 @@
 
 typeset PROG=$0
 typeset NAME=$0:t
-typeset VERSION=0.04
-typeset YEARS=2016
+typeset VERSION=0.05
+typeset YEARS=2016-2019
 typeset AUTHOR='Paul Hoffman'
 typeset EMAIL=nkuitse@nkuitse.com
 
@@ -260,18 +260,20 @@ cmd_info() {
     typeset bstat
     cd $sdir
     wc -l < $b.eum | read nfiles
-    set -- *.[0-9]*(.N)
+    set -- $b.[0-9]*(.N)
     nsegments=$#
-    set -- *.[0-9]*.gz(.N)
+    set -- $b.[0-9]*.gz(.N)
     ncompressed=$#
     awk 'BEGIN {b = e = 0} /^begin / {b = $2} /^end / {e = $2} END {print b " " e}' $b.backup | read began ended
-    set -- @*(N)
-    if (( $# > 1 )); then
-        bstat=multiple
-    elif (( $# == 1 )); then
-        bstat=${1[2,-1]}
-    elif (( ended == 0 )); then
-        bstat=unknown
+    if (( ended == 0 )); then
+        set -- @*(N)
+        if (( $# > 1 )); then
+            bstat=multiple
+        elif [[ $1 == @busy ]]; then
+            bstat=busy
+        else
+            bstat=unknown
+        fi
     else
         bstat=done
     fi
@@ -322,7 +324,7 @@ cmd_null() {
 
 busy() {
     typeset sdir=$1
-    mv $sdir/@idle $sdir/@busy  ||
+    mv $sdir/@idle $sdir/@busy ||
     fatal "Can\'t set series $sdir:t to busy; may be in unknown state"
 }
 
